@@ -366,6 +366,12 @@ impl NftReward {
     /// contract has been initialized. Before initialization the check is skipped so
     /// that existing deployments remain functional.
     ///
+    /// Reward NFTs minted through this entrypoint are **soulbound** (non-transferable)
+    /// by default, matching `mint_reward_nft_from_map`'s default, so an authorized
+    /// minter gets the same behaviour from either path. Callers that want a
+    /// transferable reward or a completion rank should use `mint_reward_nft_from_map`
+    /// with the "transferable" / "completion_rank" keys set.
+    ///
     /// # Arguments
     /// * `minter` - Address performing the mint (must be whitelisted after init)
     /// * `hunt_id` - The hunt this NFT commemorates
@@ -382,10 +388,11 @@ impl NftReward {
         metadata: NftMetadata,
     ) -> u64 {
         Self::require_authorized_caller(&env, &minter);
-        // This direct entrypoint has no rank context; pass 0 so callers that
-        // care about rank should use `mint_reward_nft_from_map` with the
-        // "completion_rank" key set.
-        Self::mint_reward_nft_impl(env, hunt_id, player_address, metadata, true, 0)
+        // This direct entrypoint has no rank or transferability context; align with
+        // `mint_reward_nft_from_map` and default to soulbound (transferable = false).
+        // Callers that care about rank or transferability should use
+        // `mint_reward_nft_from_map` with the "transferable" / "completion_rank" keys.
+        Self::mint_reward_nft_impl(env, hunt_id, player_address, metadata, false, 0)
     }
 
     /// Mints a reward NFT from a generic metadata map. This is the entrypoint
