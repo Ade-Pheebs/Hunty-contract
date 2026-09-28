@@ -1371,13 +1371,13 @@ impl NftReward {
     }
 
     /// Returns paginated NFT IDs owned by an address.
-    /// The limit is bounded to MAX_SCAN_LIMIT (1000) to prevent excessive gas consumption.
+    /// The limit is bounded to `MAX_SCAN_LIMIT` to prevent excessive gas consumption.
     pub fn get_player_nfts(env: Env, owner: Address, offset: u32, limit: u32) -> Vec<u64> {
         Storage::get_owner_nfts(&env, &owner, offset, limit.min(MAX_SCAN_LIMIT))
     }
 
     /// Returns paginated NFT IDs minted for a hunt.
-    /// The limit is bounded to MAX_SCAN_LIMIT (1000) to prevent excessive gas consumption.
+    /// The limit is bounded to `MAX_SCAN_LIMIT` to prevent excessive gas consumption.
     pub fn get_nfts_by_hunt(env: Env, hunt_id: u64, offset: u32, limit: u32) -> Vec<u64> {
         Storage::get_hunt_nfts(&env, hunt_id, offset, limit.min(MAX_SCAN_LIMIT))
     }
