@@ -440,7 +440,7 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
-        Ok(())
+        Err(RewardErrorCode::Unauthorized)
     }
 
     /// Adds a contract to the authorized callers list for `distribute_rewards`.

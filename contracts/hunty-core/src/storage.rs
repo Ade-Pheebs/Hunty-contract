@@ -443,6 +443,7 @@ impl Storage {
                     invite_code_hash: None,
 
                     remaining_slots: 0,
+                    leaderboard_visibility: crate::types::LeaderboardVisibility::Public,
                 })
         };
 

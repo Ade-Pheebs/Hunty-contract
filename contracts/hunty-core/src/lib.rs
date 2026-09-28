@@ -270,6 +270,7 @@ impl HuntyCore {
             is_private: false,
             invite_code_hash: None,
             remaining_slots: 0,
+            leaderboard_visibility: LeaderboardVisibility::Public,
         };
 
         // Store the hunt
@@ -2177,6 +2178,16 @@ impl HuntyCore {
         // Enforce the registration deadline if the creator configured one
         if hunt.registration_deadline != 0 && current_time >= hunt.registration_deadline {
             return Err(HuntErrorCode::RegistrationsPaused);
+        }
+
+        // Single duplicate-registration check: reject a player who is already
+        // registered for this hunt in the current activation cycle. Progress
+        // from a previous cycle (the hunt was deactivated and reactivated) is
+        // treated as stale and allowed to be overwritten by a fresh registration.
+        if let Some(existing) = Storage::get_player_progress(&env, hunt_id, &player) {
+            if existing.started_at >= hunt.activated_at {
+                return Err(HuntErrorCode::DuplicateRegistration);
+            }
         }
 
         let progress = PlayerProgress::new(&env, player.clone(), hunt_id, current_time);

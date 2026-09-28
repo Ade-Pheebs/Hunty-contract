@@ -127,6 +127,9 @@ pub struct NftCore {
     pub locked: bool,
 }
 
+/// Expected number of fields in NftData — do not change without migration
+pub const NFT_DATA_FIELD_COUNT: usize = 8;
+
 /// NFT data structure stored on-chain.
 /// NOTE: Do NOT add new fields here without a migration step — the Soroban
 /// host rejects stored structs whose field count differs from the stored
