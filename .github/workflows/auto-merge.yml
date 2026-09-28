@@ -1,7 +1,8 @@
 name: Auto-merge conflict-free PRs
 
-# Merges every non-draft PR into main as soon as GitHub reports it has no
-# merge conflicts. No review or status checks are required.
+# Merges every non-draft PR into main 10 minutes after its last update, if
+# GitHub reports it has no merge conflicts. No review or status checks are
+# required.
 #
 # Uses pull_request_target so fork PRs get a write-scoped token. This job must
 # never check out or run code from the PR: it only calls the GitHub API.
@@ -24,13 +25,27 @@ jobs:
     name: Merge if conflict-free
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
+      # A new push cancels this run (see concurrency above) and starts a fresh
+      # one, so a PR merges 10 minutes after its most recent update.
+      - name: Wait 10 minutes
+        run: sleep 600
+
       - name: Wait for mergeability and merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          # The PR may have been closed, merged or turned back into a draft
+          # during the wait.
+          read -r pr_state is_draft < <(gh pr view "$PR" --json state,isDraft -q '"\(.state) \(.isDraft)"')
+          if [ "$pr_state" != "OPEN" ] || [ "$is_draft" = "true" ]; then
+            echo "Not merging: PR is $pr_state (draft=$is_draft)."
+            exit 0
+          fi
+
           # GitHub computes mergeability asynchronously; poll until it settles.
           for _ in $(seq 1 30); do
             state=$(gh pr view "$PR" --json mergeable -q .mergeable)
