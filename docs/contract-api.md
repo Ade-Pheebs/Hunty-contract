@@ -5077,6 +5077,12 @@ Mints a unique NFT as a reward for hunt completion.
 contract has been initialized. Before initialization the check is skipped so
 that existing deployments remain functional.
 
+Reward NFTs minted through this entrypoint are **soulbound** (non-transferable)
+by default, matching `mint_reward_nft_from_map`'s default, so an authorized
+minter gets the same behaviour from either path. Callers that want a
+transferable reward or a completion rank should use `mint_reward_nft_from_map`
+with the "transferable" / "completion_rank" keys set.
+
 # Arguments
 * `minter` - Address performing the mint (must be whitelisted after init)
 * `hunt_id` - The hunt this NFT commemorates
