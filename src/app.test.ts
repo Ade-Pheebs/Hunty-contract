@@ -81,4 +81,24 @@ describe('createApp', () => {
     expect(body.minted).toBe(true);
     expect(body.mintsInWindow).toBe(1);
   });
+
+  it('keys the global limiter on the forwarded client IP when trustProxy is set', async () => {
+    const app = createApp({ config: { ...config, trustProxy: 1 }, limiter });
+    const listening = await listen(app);
+    server = listening.server;
+
+    const post = (ip: string) =>
+      fetch(`${listening.baseUrl}/mint`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+        body: JSON.stringify({ address: 'invalid' }),
+      });
+
+    for (let i = 0; i < 100; i++) {
+      expect((await post('203.0.113.1')).status).toBe(400);
+    }
+    expect((await post('203.0.113.1')).status).toBe(429);
+    // A different client behind the same proxy is not affected.
+    expect((await post('203.0.113.2')).status).toBe(400);
+  });
 });

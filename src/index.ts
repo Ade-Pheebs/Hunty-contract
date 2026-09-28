@@ -17,6 +17,11 @@ export interface AppDeps {
  */
 export function createApp({ config, limiter }: AppDeps): express.Express {
   const app = express();
+  // Must be set before any rate limiter so req.ip is the real client address
+  // when running behind a reverse proxy / load balancer.
+  if (config.trustProxy !== undefined) {
+    app.set('trust proxy', config.trustProxy);
+  }
   app.use(express.json({ limit: '10kb' }));
 
   const globalLimiter = rateLimit({
