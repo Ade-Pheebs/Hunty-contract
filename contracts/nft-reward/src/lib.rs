@@ -134,8 +134,6 @@ pub const NFT_DATA_FIELD_COUNT: usize = 8;
 /// NOTE: Do NOT add new fields here without a migration step — the Soroban
 /// host rejects stored structs whose field count differs from the stored
 /// ScVal map. Use per-NFT auxiliary keys for new metadata instead.
-/// Expected number of fields in NftData — do not change without migration
-pub const NFT_DATA_FIELD_COUNT: usize = 8;
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -609,6 +607,7 @@ impl NftReward {
         Storage::add_nft_to_owner(&env, &player_address, nft_id);
         Storage::increment_owner_hunt_count(&env, &player_address, hunt_id);
         Storage::add_nft_to_hunt(&env, hunt_id, nft_id);
+        Storage::add_nft_to_all(&env, nft_id);
         Storage::mark_hunt_minted(&env, hunt_id);
         // Read the counter once and reuse it for both the supply update and the event.
         let total_supply = Storage::get_nft_counter(&env);
