@@ -1,9 +1,8 @@
 #![cfg_attr(not(test), no_std)]
 #![allow(clippy::too_many_arguments)]
-use hunty_common::audit::{ACTION_ADMIN_ADDED, ACTION_ADMIN_REMOVED, TOPIC_AUDIT};
-use hunty_common::audit_emitter::{detail, emit_audit_event};
+#![allow(deprecated)]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, panic_with_error, symbol_short, Address, Bytes, Env, Map,
+    contract, contractimpl, contracttype, panic_with_error, symbol_short, Address, Env, Map,
     String, Symbol, Val, Vec,
 };
 
@@ -82,14 +81,12 @@ fn image_uri_is_valid(uri: &String) -> bool {
     // copy_into_slice, so the bytes are guaranteed to be valid UTF-8.
     let text = unsafe { core::str::from_utf8_unchecked(&buf[..len as usize]) };
 
-    if text.starts_with("https://") {
+    if let Some(authority) = text.strip_prefix("https://") {
         // Require at least one non-whitespace character after the scheme.
-        let authority = &text[8..];
         return !authority.is_empty() && !authority.bytes().all(|b| b == b' ');
     }
-    if text.starts_with("ipfs://") {
+    if let Some(cid) = text.strip_prefix("ipfs://") {
         // Require CID of at least 46 chars (IPFS v0 base58) after "ipfs://".
-        let cid = &text[7..];
         return cid.len() >= 46;
     }
     false
@@ -137,6 +134,9 @@ pub const NFT_DATA_FIELD_COUNT: usize = 8;
 /// NOTE: Do NOT add new fields here without a migration step — the Soroban
 /// host rejects stored structs whose field count differs from the stored
 /// ScVal map. Use per-NFT auxiliary keys for new metadata instead.
+/// Expected number of fields in NftData — do not change without migration
+pub const NFT_DATA_FIELD_COUNT: usize = 8;
+
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NftData {
@@ -446,25 +446,9 @@ impl NftReward {
         let description = extract_field!("description", String, String::from_str(&env, ""));
         let image_uri = extract_field!("image_uri", String, String::from_str(&env, ""));
 
-        let hunt_title = metadata
-            .get(Symbol::new(&env, "hunt_title"))
-            .and_then(|v| String::try_from_val(&env, &v).ok())
-            .unwrap_or_else(|| title.clone());
-
-        let rarity = metadata
-            .get(Symbol::new(&env, "rarity"))
-            .and_then(|v| u32::try_from_val(&env, &v).ok())
-            .unwrap_or(0u32);
-
-        let tier = metadata
-            .get(Symbol::new(&env, "tier"))
-            .and_then(|v| u32::try_from_val(&env, &v).ok())
-            .unwrap_or(0u32);
-
-        let creator = metadata
-            .get(Symbol::new(&env, "creator"))
-            .and_then(|v| Address::try_from_val(&env, &v).ok())
-            .or_else(|| Some(player_address.clone()));
+        let hunt_title = extract_field!("hunt_title", String, title.clone());
+        let rarity = extract_field!("rarity", u32, 0u32);
+        let tier = extract_field!("tier", u32, 0u32);
 
         let creator = match metadata.get(Symbol::new(&env, "creator")) {
             None => Some(player_address.clone()),
@@ -506,9 +490,9 @@ impl NftReward {
         ))
     }
 
-    fn validate_image_uri(env: &Env, value: &String) -> Result<(), NftErrorCode> {
+    fn validate_image_uri(_env: &Env, value: &String) -> Result<(), NftErrorCode> {
         if !image_uri_is_valid(value) {
-            return Err(NftErrorCode::InvalidMetadata);
+            return Err(NftErrorCode::InvalidImageUri);
         }
         Ok(())
     }
@@ -544,10 +528,7 @@ impl NftReward {
         Ok(())
     }
 
-    fn validate_royalty_bps(
-        _env: &Env,
-        royalty_bps: Option<u32>,
-    ) -> Result<(), NftErrorCode> {
+    fn validate_royalty_bps(_env: &Env, royalty_bps: Option<u32>) -> Result<(), NftErrorCode> {
         if let Some(bps) = royalty_bps {
             if bps > MAX_ROYALTY_BPS {
                 return Err(NftErrorCode::InvalidRoyalty);
@@ -638,7 +619,12 @@ impl NftReward {
             // Use the authoritative rank threaded from hunty-core (frozen at
             // completion time), not a live re-count of minted NFTs.
             completion_rank,
-            collection_stats: Self::collection_stats_string(&env, total_supply),
+            // Keep the legacy event payload deterministic in `no_std`; the
+            // collection counters are exposed through the dedicated queries.
+            collection_stats: String::from_str(
+                &env,
+                "total_supply=tracked,total_hunts=tracked,total_owners=tracked",
+            ),
         };
         env.events()
             .publish((Symbol::new(&env, "NftMinted"), nft_id), event);

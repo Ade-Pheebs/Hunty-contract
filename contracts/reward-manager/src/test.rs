@@ -8,7 +8,7 @@
 mod test {
     use crate::errors::RewardErrorCode;
     use crate::storage::Storage;
-    use crate::types::RewardConfig;
+    use crate::types::{DistributionMode, RankRewardTier, RewardConfig, RewardPoolConfig};
     use crate::{PoolDistribution, RewardManager, RewardsDistributedEvent};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::testutils::Events as _;
@@ -127,6 +127,33 @@ mod test {
             nft_tier: 0,
             completion_rank: 0,
         }
+    }
+
+    fn seed_pool_config(
+        env: &Env,
+        hunt_id: u64,
+        creator: Address,
+        token_address: Address,
+    ) -> RewardPoolConfig {
+        let config = RewardPoolConfig {
+            creator,
+            delegates: Vec::new(env),
+            min_distribution_amount: 0,
+            time_based_tiers: Vec::new(env),
+            rank_based_tiers: Vec::new(env),
+            frozen: false,
+            token_address,
+            nft_contract: None,
+            target_amount: 0,
+            min_distribution_interval_secs: 0,
+            distribution_mode: DistributionMode::Fixed,
+            vesting_period_secs: 0,
+            claim_deadline: 0,
+            nft_royalty_bps: 0,
+            nft_transferable: true,
+        };
+        Storage::set_pool_config(env, hunt_id, &config);
+        config
     }
 
     fn find_event<T: TryFromVal<Env, Val>>(env: &Env, topic: Symbol) -> Option<(Vec<Val>, T)> {
@@ -376,6 +403,257 @@ mod test {
             let err =
                 RewardManager::set_pool_tiers(env.clone(), creator.clone(), 99, tiers).unwrap_err();
             assert_eq!(err, RewardErrorCode::PoolNotFound);
+        });
+    }
+
+    #[test]
+    fn test_resolve_rank_tier_exact_and_missing() {
+        let env = Env::default();
+        let tiers = Vec::from_array(
+            &env,
+            [
+                RankRewardTier {
+                    rank: 1,
+                    xlm_amount: 1_000,
+                },
+                RankRewardTier {
+                    rank: 10,
+                    xlm_amount: 100,
+                },
+            ],
+        );
+
+        assert_eq!(crate::resolve_rank_tier_amount(&tiers, 0), None);
+        assert_eq!(crate::resolve_rank_tier_amount(&tiers, 1), Some(1_000));
+        assert_eq!(crate::resolve_rank_tier_amount(&tiers, 2), None);
+        assert_eq!(crate::resolve_rank_tier_amount(&tiers, 10), Some(100));
+        assert_eq!(crate::resolve_rank_tier_amount(&tiers, 11), None);
+    }
+
+    #[test]
+    fn test_rank_tiers_reject_invalid_order_and_zero_rank() {
+        let env = Env::default();
+        let duplicate = Vec::from_array(
+            &env,
+            [
+                RankRewardTier {
+                    rank: 2,
+                    xlm_amount: 100,
+                },
+                RankRewardTier {
+                    rank: 2,
+                    xlm_amount: 50,
+                },
+            ],
+        );
+        assert_eq!(
+            crate::rank_tiers_are_strictly_ascending(&duplicate),
+            Err(crate::TierError::NotStrictlyAscending)
+        );
+
+        let zero_rank = Vec::from_array(
+            &env,
+            [RankRewardTier {
+                rank: 0,
+                xlm_amount: 100,
+            }],
+        );
+        assert_eq!(
+            crate::rank_tiers_are_strictly_ascending(&zero_rank),
+            Err(crate::TierError::NotStrictlyAscending)
+        );
+
+        let non_positive = Vec::from_array(
+            &env,
+            [RankRewardTier {
+                rank: 1,
+                xlm_amount: 0,
+            }],
+        );
+        assert_eq!(
+            crate::rank_tiers_are_strictly_ascending(&non_positive),
+            Err(crate::TierError::NonPositiveAmount)
+        );
+    }
+
+    #[test]
+    fn test_rank_tier_constructor_rejects_zero_rank() {
+        assert_eq!(
+            RankRewardTier::new(0, 100),
+            Err(crate::TierError::NotStrictlyAscending)
+        );
+    }
+
+    #[test]
+    fn test_set_pool_rank_tiers_persists_and_empty_disables() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let (contract_id, token_address, _) = setup(&env);
+        let creator = Address::generate(&env);
+        let hunt_id = 41;
+
+        env.as_contract(&contract_id, || {
+            seed_pool_config(&env, hunt_id, creator.clone(), token_address);
+            let tiers = Vec::from_array(
+                &env,
+                [
+                    RankRewardTier {
+                        rank: 1,
+                        xlm_amount: 1_000,
+                    },
+                    RankRewardTier {
+                        rank: 10,
+                        xlm_amount: 100,
+                    },
+                ],
+            );
+            RewardManager::set_pool_rank_tiers(env.clone(), creator.clone(), hunt_id, tiers)
+                .unwrap();
+
+            let config = RewardManager::get_pool_config(env.clone(), hunt_id).unwrap();
+            assert_eq!(config.rank_based_tiers.len(), 2);
+            assert_eq!(config.rank_based_tiers.get(0).unwrap().xlm_amount, 1_000);
+        });
+
+        env.mock_all_auths_allowing_non_root_auth();
+        env.as_contract(&contract_id, || {
+            RewardManager::set_pool_rank_tiers(env.clone(), creator, hunt_id, Vec::new(&env))
+                .unwrap();
+            let config = RewardManager::get_pool_config(env.clone(), hunt_id).unwrap();
+            assert!(config.rank_based_tiers.is_empty());
+        });
+    }
+
+    #[test]
+    fn test_set_pool_rank_tiers_rejects_invalid_config_without_mutation() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let (contract_id, token_address, _) = setup(&env);
+        let creator = Address::generate(&env);
+        let hunt_id = 42;
+
+        env.as_contract(&contract_id, || {
+            seed_pool_config(&env, hunt_id, creator.clone(), token_address);
+            let invalid = Vec::from_array(
+                &env,
+                [
+                    RankRewardTier {
+                        rank: 2,
+                        xlm_amount: 100,
+                    },
+                    RankRewardTier {
+                        rank: 1,
+                        xlm_amount: 50,
+                    },
+                ],
+            );
+            let result = RewardManager::set_pool_rank_tiers(env.clone(), creator, hunt_id, invalid);
+            assert_eq!(result, Err(RewardErrorCode::InvalidConfig));
+            assert!(RewardManager::get_pool_config(env.clone(), hunt_id)
+                .unwrap()
+                .rank_based_tiers
+                .is_empty());
+        });
+    }
+
+    #[test]
+    fn test_set_pool_rank_tiers_requires_pool_creator() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let (contract_id, token_address, _) = setup(&env);
+        let creator = Address::generate(&env);
+        let attacker = Address::generate(&env);
+        let hunt_id = 43;
+
+        env.as_contract(&contract_id, || {
+            seed_pool_config(&env, hunt_id, creator, token_address);
+            let result = RewardManager::set_pool_rank_tiers(
+                env.clone(),
+                attacker,
+                hunt_id,
+                Vec::from_array(
+                    &env,
+                    [RankRewardTier {
+                        rank: 1,
+                        xlm_amount: 100,
+                    }],
+                ),
+            );
+            assert_eq!(result, Err(RewardErrorCode::Unauthorized));
+        });
+    }
+
+    #[test]
+    fn test_set_pool_rank_tiers_rejects_missing_pool() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let (contract_id, _, _) = setup(&env);
+        let creator = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            let result = RewardManager::set_pool_rank_tiers(
+                env.clone(),
+                creator,
+                999,
+                Vec::from_array(
+                    &env,
+                    [RankRewardTier {
+                        rank: 1,
+                        xlm_amount: 100,
+                    }],
+                ),
+            );
+            assert_eq!(result, Err(RewardErrorCode::PoolNotFound));
+        });
+    }
+
+    #[test]
+    fn test_apply_rank_tier_overrides_caller_amount() {
+        let env = Env::default();
+        let (contract_id, token_address, _) = setup(&env);
+        let creator = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            let mut pool_config = seed_pool_config(&env, 44, creator, token_address);
+            let mut reward_config = xlm_only_config(&env, 1);
+            reward_config.completion_rank = 1;
+            pool_config.rank_based_tiers = Vec::from_array(
+                &env,
+                [RankRewardTier {
+                    rank: 1,
+                    xlm_amount: 1_000,
+                }],
+            );
+
+            RewardManager::apply_rank_tier(&pool_config, &mut reward_config);
+            assert_eq!(reward_config.xlm_amount, Some(1_000));
+        });
+    }
+
+    #[test]
+    fn test_reward_pool_config_xdr_includes_rank_tiers_and_nft_fields() {
+        let env = Env::default();
+        let (contract_id, token_address, _) = setup(&env);
+        let creator = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            let mut config = seed_pool_config(&env, 45, creator, token_address);
+            config.rank_based_tiers = Vec::from_array(
+                &env,
+                [RankRewardTier {
+                    rank: 1,
+                    xlm_amount: 1_000,
+                }],
+            );
+            let encoded = config.clone().into_val(&env);
+            let decoded: reward_interface::RewardPoolConfig =
+                <reward_interface::RewardPoolConfig as TryFromVal<Env, Val>>::try_from_val(
+                    &env, &encoded,
+                )
+                .unwrap();
+            assert_eq!(decoded.rank_based_tiers.len(), 1);
+            assert_eq!(decoded.nft_royalty_bps, config.nft_royalty_bps);
+            assert_eq!(decoded.nft_transferable, config.nft_transferable);
         });
     }
 
@@ -1192,6 +1470,7 @@ mod test {
                     delegates: Vec::new(&env),
                     min_distribution_amount: 0,
                     time_based_tiers: Vec::new(&env),
+                    rank_based_tiers: Vec::new(&env),
                     frozen: false,
                     token_address: token_address.clone(),
                     nft_contract: None,
@@ -2712,13 +2991,14 @@ mod test {
         let config = xlm_only_config(&env, 2_000);
         env.as_contract(&unauthorized, || {
             let mut args: Vec<Val> = Vec::new(&env);
+            args.push_back(unauthorized.clone().into_val(&env));
             args.push_back((1u64).into_val(&env));
             args.push_back(player.clone().into_val(&env));
             args.push_back(config.clone().into_val(&env));
 
             let result = env.try_invoke_contract::<(), RewardErrorCode>(
                 &contract_id,
-                &Symbol::new(&env, "distribute_rewards"),
+                &Symbol::new(&env, "distribute_rewards_authorized"),
                 args,
             );
             assert_eq!(result, Err(Err(RewardErrorCode::Unauthorized)));
@@ -3873,6 +4153,7 @@ mod test {
             symbol_short!("NFT_SET"),
             symbol_short!("POOL_CRT"),
             symbol_short!("PL_TIERS"),
+            symbol_short!("PL_RTIERS"),
             symbol_short!("POOL_FND"),
             symbol_short!("POOL_MIG"),
             symbol_short!("POOL_FRZ"),
@@ -4196,16 +4477,12 @@ mod test {
             // The record should still be written, preventing retry attacks
             let mut config = xlm_only_config(&env, 30_000_000);
             config.nft_contract = Some(Address::generate(&env)); // Invalid/non-existent contract
-            
-            let result = RewardManager::distribute_rewards(
-                env.clone(),
-                1,
-                player.clone(),
-                config.clone(),
-            );
+
+            let result =
+                RewardManager::distribute_rewards(env.clone(), 1, player.clone(), config.clone());
             // Distribution with XLM should succeed, NFT should fail gracefully
             // OR if validation rejects the bad config, either way the check below works
-            
+
             // Regardless of first attempt outcome, second attempt should be rejected
             let result2 = RewardManager::distribute_rewards(
                 env.clone(),
@@ -4256,8 +4533,12 @@ mod test {
             assert_eq!(total_refunded_before, 0);
 
             // Verify accounting identity BEFORE refund
-            let identity_before = total_deposited_1 == balance_before + total_distributed_1 + total_refunded_before;
-            assert!(identity_before, "Accounting identity should hold before refund");
+            let identity_before =
+                total_deposited_1 == balance_before + total_distributed_1 + total_refunded_before;
+            assert!(
+                identity_before,
+                "Accounting identity should hold before refund"
+            );
 
             // Refund the pool
             RewardManager::refund_pool(env.clone(), creator.clone(), 1).unwrap();
@@ -4271,9 +4552,13 @@ mod test {
             assert_eq!(total_refunded_after, 70_000_000);
 
             // Verify accounting identity AFTER refund
-            let identity_after = total_deposited_1 == balance_after + total_distributed_after + total_refunded_after;
-            assert!(identity_after, "Accounting identity: {} == {} + {} + {}",
-                total_deposited_1, balance_after, total_distributed_after, total_refunded_after);
+            let identity_after =
+                total_deposited_1 == balance_after + total_distributed_after + total_refunded_after;
+            assert!(
+                identity_after,
+                "Accounting identity: {} == {} + {} + {}",
+                total_deposited_1, balance_after, total_distributed_after, total_refunded_after
+            );
         });
 
         // Creator should have received the 70_000_000 refund
@@ -4399,7 +4684,10 @@ mod test {
                     }
                 }
             }
-            assert!(found_withdraw, "Audit log should contain Withdraw operation");
+            assert!(
+                found_withdraw,
+                "Audit log should contain Withdraw operation"
+            );
         });
 
         // Now test refund_pool separately and verify it's labeled Refund, not Withdraw
@@ -4423,7 +4711,10 @@ mod test {
                 }
             }
             assert!(found_refund, "refund_pool should record a Refund operation");
-            assert!(!found_withdraw, "refund_pool should NOT record a Withdraw operation");
+            assert!(
+                !found_withdraw,
+                "refund_pool should NOT record a Withdraw operation"
+            );
         });
     }
 
@@ -4473,8 +4764,11 @@ mod test {
                 v
             };
             let result_retry = RewardManager::distribute_batch(env.clone(), entries_retry);
-            assert_eq!(result_retry, Err(RewardErrorCode::AlreadyDistributed),
-                "Retry batch for same player should fail");
+            assert_eq!(
+                result_retry,
+                Err(RewardErrorCode::AlreadyDistributed),
+                "Retry batch for same player should fail"
+            );
         });
 
         // Players should have received only 50_000_000 each, not 80_000_000
