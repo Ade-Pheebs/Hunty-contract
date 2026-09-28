@@ -7844,7 +7844,9 @@ Validates whether a pool can cover a given distribution amount.
 
 Checks that:
 - The pool exists (was created via create_reward_pool)
-- The required_amount is positive
+- The required_amount is positive, except that `required_amount == 0` is
+  valid for pools with an NFT contract (NFT-only pools), which hold no
+  token balance by design (#1088)
 - The pool balance >= required_amount
 - The required_amount meets the pool's minimum distribution threshold (if set)
 
