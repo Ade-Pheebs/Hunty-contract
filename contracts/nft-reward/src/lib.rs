@@ -12,6 +12,9 @@ const MAX_NFT_URI_BYTES: u32 = 512;
 const MAX_EXTENSION_FIELDS: u32 = 10;
 const MAX_EXTENSION_KEY_BYTES: u32 = 64;
 const MAX_EXTENSION_VALUE_BYTES: u32 = 512;
+/// Prefix for owner-written extension keys to namespace them separately from
+/// issuer-written extension keys.
+const OWNER_EXTENSION_PREFIX: &str = "owner:";
 /// Maximum NFTs returned by a single scan/list query.
 ///
 /// Matches hunty-core's `MAX_LEADERBOARD_SCAN_SIZE` / `MAX_HUNT_SEARCH_SCAN_SIZE`
@@ -515,7 +518,7 @@ impl NftReward {
     }
 
     fn validate_extensions(
-        _env: &Env,
+        env: &Env,
         extensions: &Map<String, String>,
     ) -> Result<(), NftErrorCode> {
         let count = extensions.len();
@@ -527,6 +530,13 @@ impl NftReward {
                 return Err(NftErrorCode::InvalidExtensionKey);
             }
             if value.len() > MAX_EXTENSION_VALUE_BYTES {
+                return Err(NftErrorCode::InvalidExtensionValue);
+            }
+            // Sanitize keys and values
+            if sanitization::StringSanitizer::sanitize(env, &key, MAX_EXTENSION_KEY_BYTES, false).is_err() {
+                return Err(NftErrorCode::InvalidExtensionKey);
+            }
+            if sanitization::StringSanitizer::sanitize(env, &value, MAX_EXTENSION_VALUE_BYTES, true).is_err() {
                 return Err(NftErrorCode::InvalidExtensionValue);
             }
         }
@@ -701,29 +711,56 @@ impl NftReward {
             return Err(crate::errors::NftErrorCode::NotOwner);
         }
 
+        // Namespace owner-written keys separately from issuer keys
+        let namespaced_key = if key.starts_with(OWNER_EXTENSION_PREFIX) {
+            key.clone()
+        } else {
+            String::from_str(&env, OWNER_EXTENSION_PREFIX).concat(&key)
+        };
+
         // Validate key and value lengths
-        if key.len() > MAX_EXTENSION_KEY_BYTES {
+        if namespaced_key.len() > MAX_EXTENSION_KEY_BYTES {
             return Err(crate::errors::NftErrorCode::InvalidExtensionKey);
         }
         if value.len() > MAX_EXTENSION_VALUE_BYTES {
             return Err(crate::errors::NftErrorCode::InvalidExtensionValue);
         }
 
+        // Sanitize key and value
+        let sanitized_key = match sanitization::StringSanitizer::sanitize(
+            &env,
+            &namespaced_key,
+            MAX_EXTENSION_KEY_BYTES,
+            false,
+        ) {
+            Ok(k) => k,
+            Err(_) => return Err(crate::errors::NftErrorCode::InvalidExtensionKey),
+        };
+        let sanitized_value = match sanitization::StringSanitizer::sanitize(
+            &env,
+            &value,
+            MAX_EXTENSION_VALUE_BYTES,
+            true,
+        ) {
+            Ok(v) => v,
+            Err(_) => return Err(crate::errors::NftErrorCode::InvalidExtensionValue),
+        };
+
         // Check if key already exists
-        let key_exists = nft.metadata.extensions.contains_key(key.clone());
+        let key_exists = nft.metadata.extensions.contains_key(sanitized_key.clone());
 
         if !key_exists && nft.metadata.extensions.len() >= MAX_EXTENSION_FIELDS {
             return Err(crate::errors::NftErrorCode::TooManyExtensions);
         }
 
-        nft.metadata.extensions.set(key.clone(), value);
+        nft.metadata.extensions.set(sanitized_key.clone(), sanitized_value);
         Storage::save_nft(&env, &nft);
 
         env.events().publish(
             (Symbol::new(&env, "NftExtensionSet"), nft_id),
             NftExtensionSetEvent {
                 nft_id,
-                key,
+                key: sanitized_key,
                 updater: owner,
             },
         );
@@ -777,18 +814,25 @@ impl NftReward {
             return Err(crate::errors::NftErrorCode::NotOwner);
         }
 
-        if !nft.metadata.extensions.contains_key(key.clone()) {
+        // Namespace owner-written keys separately from issuer keys
+        let namespaced_key = if key.starts_with(OWNER_EXTENSION_PREFIX) {
+            key.clone()
+        } else {
+            String::from_str(&env, OWNER_EXTENSION_PREFIX).concat(&key)
+        };
+
+        if !nft.metadata.extensions.contains_key(namespaced_key.clone()) {
             return Err(crate::errors::NftErrorCode::ExtensionNotFound);
         }
 
-        nft.metadata.extensions.remove(key.clone());
+        nft.metadata.extensions.remove(namespaced_key.clone());
         Storage::save_nft(&env, &nft);
 
         env.events().publish(
             (Symbol::new(&env, "NftExtensionRemoved"), nft_id),
             NftExtensionRemovedEvent {
                 nft_id,
-                key,
+                key: namespaced_key,
                 updater: owner,
             },
         );
