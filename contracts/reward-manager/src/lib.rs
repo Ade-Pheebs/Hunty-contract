@@ -205,6 +205,15 @@ pub struct GlobalDailyCapWarningEvent {
     pub cap: i128,
 }
 
+/// Event emitted when the global daily distribution cap is changed (#1073).
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct GlobalCapChangedEvent {
+    pub old_cap: i128,
+    pub new_cap: i128,
+    pub admin: Address,
+}
+
 /// Event emitted when the default NFT reward contract is set or updated.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -328,7 +337,9 @@ impl RewardManager {
     }
 
     fn require_admin(env: &Env, admin: &Address) -> Result<(), RewardErrorCode> {
-        #[cfg(not(test))]
+        // #1072: auth must run unconditionally — no cfg(not(test)) gate.
+        // Tests that call this path must use mock_all_auths() or explicit
+        // register_auths() so regressions that drop auth are caught by CI.
         admin.require_auth();
 
         let configured_admin = Storage::get_admin(env).ok_or(RewardErrorCode::NotInitialized)?;
@@ -1622,8 +1633,11 @@ impl RewardManager {
     /// # Arguments
     /// * `admin` - The contract admin address (must match the stored admin)
     /// * `hunt_id` - The hunt whose pool cap to set
-    /// * `cap` - The maximum amount to distribute per day. Must be positive (> 0).
-    ///           A cap of 0 means no distributions are allowed (use to disable).
+    /// * `cap` - The maximum amount to distribute per day. Must be non-negative.
+    ///           A cap of 0 **disables all distributions** from this pool (the
+    ///           distribution path rejects every attempt with `DailyCapExceeded`).
+    ///           Use `freeze_pool` for a semantically richer freeze. A positive
+    ///           value sets a rolling 24-hour distribution limit.
     ///
     /// # Errors
     /// * `NotInitialized` - Contract has not been initialized (no admin set)
@@ -1660,7 +1674,24 @@ impl RewardManager {
         cap: i128,
     ) -> Result<(), RewardErrorCode> {
         Self::require_admin(&env, &admin)?;
+
+        // #1073: reject negative caps — they silently block all global distributions
+        if cap < 0 {
+            return Err(RewardErrorCode::InvalidAmount);
+        }
+
+        let old_cap = Storage::get_daily_global_cap(&env);
         Storage::set_daily_global_cap(&env, cap);
+
+        env.events().publish(
+            (symbol_short!("GLC_SET"),),
+            GlobalCapChangedEvent {
+                old_cap,
+                new_cap: cap,
+                admin,
+            },
+        );
+
         Ok(())
     }
 
@@ -1825,7 +1856,11 @@ impl RewardManager {
             Storage::add_daily_global_distributed(&env, day, amount);
 
             let pool_cap = Storage::get_daily_pool_cap(&env, hunt_id);
-            if pool_cap > 0 {
+            // A cap of 0 means distributions are disabled for this pool (#1074).
+            // Positive caps enforce a rolling daily maximum.
+            if pool_cap == 0 {
+                return Err(RewardErrorCode::DailyCapExceeded);
+            } else {
                 let used = Storage::get_daily_pool_distributed(&env, hunt_id, day);
                 if used > pool_cap {
                     return Err(RewardErrorCode::DailyCapExceeded);
@@ -3141,6 +3176,12 @@ impl RewardManager {
 
         Storage::set_pool_balance(&env, hunt_id, balance - amount);
 
+        // #1071: keep accounting identity intact — admin withdrawals are
+        // treated as refunds so that a later refund_pool doesn't over-pay
+        // funders against a balance that no longer exists.
+        let prior_refunded = Storage::get_pool_total_refunded(&env, hunt_id);
+        Storage::set_pool_total_refunded(&env, hunt_id, prior_refunded + amount);
+
         env.events().publish(
             (symbol_short!("ADM_WDR"), hunt_id),
             AdminWithdrawEvent {
@@ -3188,7 +3229,8 @@ impl RewardManager {
         hunt_id: u64,
         recipient: Address,
     ) -> Result<(), RewardErrorCode> {
-        #[cfg(not(test))]
+        // #1072: auth must run unconditionally — cfg(not(test)) gate removed.
+        // Tests must use mock_all_auths() so auth regressions are caught by CI.
         admin.require_auth();
 
         let configured_admin = Storage::get_admin(&env).ok_or(RewardErrorCode::NotInitialized)?;
@@ -3235,6 +3277,12 @@ impl RewardManager {
         client.transfer(&contract_addr, &recipient, &balance);
 
         Storage::set_pool_balance(&env, hunt_id, 0);
+
+        // #1071: mirror the full-drain into total_refunded so the accounting
+        // identity (deposited == distributed + refunded + balance) holds after
+        // the pool is emptied.
+        let prior_refunded = Storage::get_pool_total_refunded(&env, hunt_id);
+        Storage::set_pool_total_refunded(&env, hunt_id, prior_refunded + balance);
 
         env.events().publish(
             (symbol_short!("ADM_WDR"), hunt_id),
