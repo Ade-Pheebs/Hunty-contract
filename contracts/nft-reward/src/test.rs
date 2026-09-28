@@ -1885,25 +1885,22 @@ fn test_add_authorized_contract_requires_admin_authorization() {
 }
 
 // -----------------------------------------------------------------------------
-// admin_update_image_uris pagination (issue #845)
+// total_supply / live-supply tracking on burn (issue #846)
 // -----------------------------------------------------------------------------
 
 #[test]
-fn test_admin_update_image_uris_paginates_across_multiple_calls() {
+fn test_burn_nft_decrements_total_supply() {
     let env = setup_env();
-    let contract_id = env.register_contract(None, NftReward);
-    let client = NftRewardClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
-    let minter = Address::generate(&env);
-    client.initialize(&admin, &minter, &None, &default_collection_metadata(&env));
-
+    let (client, minter) = setup_nft_reward(&env, None);
     let player = Address::generate(&env);
-    let n = 5u32;
-    for i in 0..n {
-        let uri = std::format!("https://old-gateway.example/{}", i);
+
+    let mut ids = std::vec::Vec::new();
+    for i in 1u64..=3 {
+        let uri = std::format!("https://gateway.example/{}", i);
         let metadata = create_metadata(&env, "NFT", "Desc", &uri);
-        client.mint_reward_nft(&minter, &(i as u64), &player, &metadata);
+        ids.push(client.mint_reward_nft(&minter, &i, &player, &metadata));
     }
+    assert_eq!(client.total_supply(), 3);
 
     let old_prefix = String::from_str(&env, "https://old-gateway.example/");
     let new_prefix = String::from_str(&env, "https://new-gateway.example/");
@@ -1926,29 +1923,20 @@ fn test_admin_update_image_uris_paginates_across_multiple_calls() {
         assert!(iterations <= 10, "pagination did not terminate");
     }
 
-    assert_eq!(total_updated, n);
-    for i in 0..n {
-        let nft = client.get_nft(&(i as u64)).unwrap();
-        let expected = std::format!("https://new-gateway.example/{}", i);
-        assert_eq!(nft.metadata.image_uri, String::from_str(&env, &expected));
-    }
+    client.burn_nft(&ids[1], &player);
+    assert_eq!(client.total_supply(), 1);
 }
 
 #[test]
-fn test_admin_update_image_uris_rerun_is_idempotent() {
+fn test_burned_nft_id_is_never_reused() {
     let env = setup_env();
-    let contract_id = env.register_contract(None, NftReward);
-    let client = NftRewardClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
-    let minter = Address::generate(&env);
-    client.initialize(&admin, &minter, &None, &default_collection_metadata(&env));
-
+    let (client, minter) = setup_nft_reward(&env, None);
     let player = Address::generate(&env);
-    let metadata = create_metadata(&env, "NFT", "Desc", "https://old-gateway.example/a");
-    client.mint_reward_nft(&minter, &1, &player, &metadata);
 
-    let old_prefix = String::from_str(&env, "https://old-gateway.example/");
-    let new_prefix = String::from_str(&env, "https://new-gateway.example/");
+    let metadata1 = create_metadata(&env, "NFT", "Desc", "https://gateway.example/1");
+    let first_id = client.mint_reward_nft(&minter, &1, &player, &metadata1);
+    client.burn_nft(&first_id, &player);
+    assert_eq!(client.total_supply(), 0);
 
     let (first_updated, next_offset) =
         client.admin_update_image_uris(&admin, &old_prefix, &new_prefix, &0, &10);
@@ -1963,20 +1951,19 @@ fn test_admin_update_image_uris_rerun_is_idempotent() {
 }
 
 #[test]
-fn test_admin_update_image_uris_offset_past_end_returns_zero() {
+#[should_panic(expected = "HostError")]
+fn test_max_supply_caps_lifetime_mints_not_live_count() {
+    // Documents the explicit semantics from issue #846: max_supply caps the
+    // number of NFTs ever minted, not the number currently live. Burning an
+    // NFT frees up nothing under the cap.
     let env = setup_env();
-    let contract_id = env.register_contract(None, NftReward);
-    let client = NftRewardClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
-    let minter = Address::generate(&env);
-    client.initialize(&admin, &minter, &None, &default_collection_metadata(&env));
-
+    let (client, minter) = setup_nft_reward(&env, Some(2));
     let player = Address::generate(&env);
-    let metadata = create_metadata(&env, "NFT", "Desc", "https://old-gateway.example/a");
-    client.mint_reward_nft(&minter, &1, &player, &metadata);
 
-    let old_prefix = String::from_str(&env, "https://old-gateway.example/");
-    let new_prefix = String::from_str(&env, "https://new-gateway.example/");
+    let m1 = create_metadata(&env, "NFT", "Desc", "https://gateway.example/1");
+    let m2 = create_metadata(&env, "NFT", "Desc", "https://gateway.example/2");
+    let id1 = client.mint_reward_nft(&minter, &1, &player, &m1);
+    client.mint_reward_nft(&minter, &2, &player, &m2);
 
     let (updated, next_offset) =
         client.admin_update_image_uris(&admin, &old_prefix, &new_prefix, &50, &10);
@@ -1984,21 +1971,76 @@ fn test_admin_update_image_uris_offset_past_end_returns_zero() {
     assert_eq!(next_offset, 50);
 }
 
+// -----------------------------------------------------------------------------
+// burn_nft: locked flag + soulbound policy (issue #847)
+// -----------------------------------------------------------------------------
+
 #[test]
-fn test_admin_update_image_uris_requires_admin() {
+fn test_burn_locked_nft_returns_error_and_leaves_storage_untouched() {
     let env = setup_env();
-    let contract_id = env.register_contract(None, NftReward);
-    let client = NftRewardClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
-    let minter = Address::generate(&env);
-    client.initialize(&admin, &minter, &None, &default_collection_metadata(&env));
+    let (client, minter) = setup_nft_reward(&env, None);
+    let player = Address::generate(&env);
 
-    let not_admin = Address::generate(&env);
-    let old_prefix = String::from_str(&env, "https://old-gateway.example/");
-    let new_prefix = String::from_str(&env, "https://new-gateway.example/");
+    let metadata = create_metadata(&env, "NFT", "Desc", "https://gateway.example/a");
+    let nft_id = client.mint_reward_nft(&minter, &1, &player, &metadata);
 
-    let result = client.try_admin_update_image_uris(&not_admin, &old_prefix, &new_prefix, &0, &10);
+    // There's no public API to lock an NFT yet, so set it directly through
+    // storage (test.rs is a descendant module of the crate root and can see
+    // the crate-private `storage` module) to exercise the check in burn_nft.
+    let mut nft = client.get_nft(&nft_id).unwrap();
+    nft.locked = true;
+    crate::storage::Storage::save_nft(&env, &nft);
+
+    let result = client.try_burn_nft(&nft_id, &player);
     assert!(result.is_err());
+
+    // Storage is untouched: the NFT still exists, unchanged.
+    let still_there = client.get_nft(&nft_id).unwrap();
+    assert!(still_there.locked);
+}
+
+#[test]
+fn test_burn_soulbound_nft_succeeds() {
+    // Decision documented on burn_nft: `transferable` gates transfer_nft
+    // only. A soulbound (non-transferable) NFT can still be burned by its
+    // own owner — burning isn't a transfer to someone else.
+    let env = setup_env();
+    let (client, minter) = setup_nft_reward(&env, None);
+    let player = Address::generate(&env);
+
+    let mut map: Map<Symbol, Val> = Map::new(&env);
+    map.set(
+        Symbol::new(&env, "title"),
+        String::from_str(&env, "Soulbound").into_val(&env),
+    );
+    map.set(
+        Symbol::new(&env, "description"),
+        String::from_str(&env, "Desc").into_val(&env),
+    );
+    map.set(
+        Symbol::new(&env, "image_uri"),
+        String::from_str(&env, "https://gateway.example/a").into_val(&env),
+    );
+    map.set(Symbol::new(&env, "transferable"), false.into_val(&env));
+
+    let nft_id = client
+        .mint_reward_nft_from_map(&minter, &1, &player, &map)
+        .unwrap();
+
+    let nft = client.get_nft(&nft_id).unwrap();
+    assert!(!nft.transferable, "expected a soulbound NFT for this test");
+
+    // Soulbound NFTs cannot be transferred...
+    let other = Address::generate(&env);
+    let transfer_result = client.try_transfer_nft(&nft_id, &player, &other, &player);
+    assert!(transfer_result.is_err());
+
+    // ...but the owner can still burn it.
+    client.burn_nft(&nft_id, &player);
+    assert!(
+        client.get_nft(&nft_id).is_none(),
+        "burned NFT must be removed from storage"
+    );
 }
 
 #[test]

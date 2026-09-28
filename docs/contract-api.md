@@ -5687,7 +5687,13 @@ pub fn update_nft_metadata(env: Env, nft_id: u64, updater: Address, new_descript
 
 #### `total_supply`
 
-Returns the total number of NFTs minted so far.
+Returns the number of NFTs that currently exist — i.e. minted so far
+minus burned. This decreases when an NFT is burned.
+
+This is distinct from the `max_supply` cap (see `get_max_supply`),
+which limits the *lifetime* mint count and is unaffected by burns:
+a burned NFT's ID is never reused and never reopens room under the
+cap for an additional mint.
 
 **Signature:**
 
@@ -6125,6 +6131,19 @@ Burns (permanently destroys) an NFT, removing it from storage and the owner's li
 
 # Authorization
 The `owner` must authorize this call and be the current owner of the NFT.
+
+# Locked vs. soulbound — deliberate, distinct policies
+- **Locked** (`nft.locked`) blocks burning outright: this flag exists for
+states like escrow, staking, or a dispute hold, where the NFT must
+not be destroyed out from under whatever holds the lock.
+- **Soulbound / non-transferable** (`!nft.transferable`) does *not*
+block burning. `transferable` only gates `transfer_nft` — moving an
+NFT to a different owner. Burning is destruction by its own owner,
+not a transfer, so a soulbound NFT can still be burned by the owner
+it's bound to. (If a given deployment wants soulbound NFTs to be
+permanent even against their own owner, that is a separate policy
+decision this function deliberately does not make — nothing here
+currently checks `transferable`.)
 
 # Errors
 Returns `NftNotFound` if the NFT does not exist.
