@@ -37,7 +37,7 @@ jobs:
         run: cargo build --target wasm32v1-none --release
 
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --locked --workspace
 
   fmt:
     name: Format
@@ -83,7 +83,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --locked --workspace -- -D warnings
 
   api-docs:
     name: API Docs
