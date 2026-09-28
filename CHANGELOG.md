@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `nft-reward`: `mint_reward_nft` (typed entrypoint) now mints soulbound (non-transferable) NFTs by default, matching `mint_reward_nft_from_map`; use the map path's explicit `"transferable"` key for transferable rewards (#1095).
 - `hunty-core`: view-only, admin-rotation, and pause functions are exported inside `#[contractimpl]` and present in the contract ABI/spec (#604).
 - `nft-reward`: `UpgradeHistoryEntry` type is defined and returned by the upgrade history accessor (#610).
 - `nft-reward`: `Storage::locker_key` key constructor is implemented and covers the authorized-locker helpers (#618).
