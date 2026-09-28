@@ -2258,11 +2258,11 @@ fn test_completion_rank_is_distinct_per_player() {
         "ranks must be distinct"
     );
 
-    // total_minted_for_hunt reflects the collection counter, not the rank.
-    assert_ne!(
-        ev2.total_minted_for_hunt, ev2.completion_rank,
-        "total_minted_for_hunt and completion_rank are different concepts"
-    );
+    // total_minted_for_hunt is the per-hunt minted count for `hunt_id` (#1093):
+    // the first mint for the hunt reports 1 and the second reports 2.
+    assert_eq!(ev1.total_minted_for_hunt, 1);
+    assert_eq!(ev2.total_minted_for_hunt, 2);
+    assert_eq!(client.get_hunt_nft_count(&hunt_id), 2);
 }
 
 // =========================================================================

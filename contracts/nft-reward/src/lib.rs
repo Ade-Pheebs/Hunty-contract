@@ -609,9 +609,13 @@ impl NftReward {
         Storage::add_nft_to_hunt(&env, hunt_id, nft_id);
         Storage::add_nft_to_all(&env, nft_id);
         Storage::mark_hunt_minted(&env, hunt_id);
-        // Read the counter once and reuse it for both the supply update and the event.
+        // Read the counter once and reuse it for the supply update.
         let total_supply = Storage::get_nft_counter(&env);
         Storage::update_collection_metadata_total_supply(&env, total_supply);
+        // `total_minted_for_hunt` is scoped to this hunt (#1093); it must not
+        // report the collection-wide counter. `add_nft_to_hunt` above already
+        // recorded this mint, so the read reflects the new per-hunt total.
+        let total_minted_for_hunt = Storage::get_hunt_nft_count(&env, hunt_id);
 
         let event = NftMintedEvent {
             nft_id,
@@ -621,7 +625,7 @@ impl NftReward {
             tier: nft_data.metadata.tier,
             minted_at,
             hunt_title: nft_data.metadata.hunt_title.clone(),
-            total_minted_for_hunt: total_supply as u32,
+            total_minted_for_hunt,
             // Use the authoritative rank threaded from hunty-core (frozen at
             // completion time), not a live re-count of minted NFTs.
             completion_rank,
