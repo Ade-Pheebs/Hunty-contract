@@ -5993,7 +5993,7 @@ pub fn has_hunt_nft(env: Env, address: Address, hunt_id: u64) -> bool
 #### `get_player_nfts`
 
 Returns paginated NFT IDs owned by an address.
-The limit is bounded to MAX_SCAN_LIMIT (1000) to prevent excessive gas consumption.
+The limit is bounded to MAX_SCAN_LIMIT (200) to prevent excessive gas consumption.
 
 **Signature:**
 
@@ -6015,7 +6015,7 @@ pub fn get_player_nfts(env: Env, owner: Address, offset: u32, limit: u32) -> Vec
 #### `get_nfts_by_hunt`
 
 Returns paginated NFT IDs minted for a hunt.
-The limit is bounded to MAX_SCAN_LIMIT (1000) to prevent excessive gas consumption.
+The limit is bounded to MAX_SCAN_LIMIT (200) to prevent excessive gas consumption.
 
 **Signature:**
 
