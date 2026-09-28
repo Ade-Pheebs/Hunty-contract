@@ -1478,7 +1478,9 @@ impl RewardManager {
     ///
     /// Checks that:
     /// - The pool exists (was created via create_reward_pool)
-    /// - The required_amount is positive
+    /// - The required_amount is positive, except that `required_amount == 0` is
+    ///   valid for pools with an NFT contract (NFT-only pools), which hold no
+    ///   token balance by design (#1088)
     /// - The pool balance >= required_amount
     /// - The required_amount meets the pool's minimum distribution threshold (if set)
     ///
@@ -1493,10 +1495,18 @@ impl RewardManager {
             if config.frozen {
                 false
             } else {
-                let meets_balance = required_amount > 0 && balance >= required_amount;
+                // NFT-only pools (zero minimum with an NFT contract) are valid
+                // at a zero required amount: they hold no token balance by
+                // design and distribute NFTs only (#1088). Negative amounts
+                // are never valid.
+                let is_nft_only =
+                    config.min_distribution_amount == 0 && config.nft_contract.is_some();
+                let valid_amount =
+                    required_amount > 0 || (required_amount == 0 && is_nft_only);
+                let meets_balance = balance >= required_amount;
                 let meets_minimum = config.min_distribution_amount == 0
                     || required_amount >= config.min_distribution_amount;
-                meets_balance && meets_minimum
+                valid_amount && meets_balance && meets_minimum
             }
         } else {
             false
