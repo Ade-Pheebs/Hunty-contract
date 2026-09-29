@@ -48,6 +48,29 @@ fn setup_hunt(env: &Env, end_time: Option<u64>) -> (HuntyCoreClient<'_>, Address
     (client, creator, hunt_id)
 }
 
+#[test]
+fn test_invite_codes_over_256_bytes_are_rejected() {
+    let env = Env::default();
+    env.ledger().set_timestamp(START_TS);
+    env.mock_all_auths();
+
+    let (client, creator, hunt_id) = setup_hunt(&env, None);
+    let oversized_code = String::from_str(&env, &"x".repeat(300));
+
+    assert!(client
+        .try_generate_invite_code(&hunt_id, &creator, &oversized_code)
+        .is_err());
+
+    client.generate_invite_code(&hunt_id, &creator, &String::from_str(&env, "valid-code"));
+    client.set_hunt_privacy(&hunt_id, &creator, &true);
+    client.activate_hunt(&hunt_id, &creator);
+
+    let player = Address::generate(&env);
+    assert!(client
+        .try_register_with_invite(&hunt_id, &player, &oversized_code)
+        .is_err());
+}
+
 fn submit(
     client: &HuntyCoreClient,
     env: &Env,

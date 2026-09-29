@@ -54,6 +54,8 @@ mod tests {
 mod paused_status_test;
 const MAX_QUESTION_LENGTH: u32 = 2000;
 const MAX_ANSWER_LENGTH: u32 = 256;
+/// Maximum invite-code length in bytes.
+const MAX_INVITE_CODE_LENGTH: usize = 256;
 const MAX_CATEGORY_BYTES: u32 = 64;
 const MAX_CATEGORIES_PER_HUNT: u32 = 5;
 const MAX_CLUES_PER_HUNT: u32 = 100;
@@ -2246,6 +2248,7 @@ impl HuntyCore {
     /// * `HuntNotFound` - Hunt does not exist
     /// * `Unauthorized` - Caller is not the hunt creator
     /// * `InvalidHuntStatus` - Hunt is not in Draft status
+    /// * `InvalidAnswer` - Invite code is empty or exceeds 256 bytes
     pub fn generate_invite_code(
         env: Env,
         hunt_id: u64,
@@ -2267,10 +2270,10 @@ impl HuntyCore {
         // Hash the invite code with hunt_id as salt to prevent rainbow-table attacks.
         // Use the same buffer-based approach as normalize_and_hash_answer for consistency.
         let code_len = invite_code.len() as usize;
-        if code_len == 0 {
+        if code_len == 0 || code_len > MAX_INVITE_CODE_LENGTH {
             return Err(HuntErrorCode::InvalidAnswer);
         }
-        let mut buf = [0u8; 264]; // 8 (hunt_id) + 256 (max invite code)
+        let mut buf = [0u8; 8 + MAX_INVITE_CODE_LENGTH];
         buf[..8].copy_from_slice(&hunt_id.to_be_bytes());
         invite_code.copy_into_slice(&mut buf[8..8 + code_len]);
         let salted = Bytes::from_slice(&env, &buf[..8 + code_len]);
@@ -2408,7 +2411,7 @@ impl HuntyCore {
     /// * `HuntNotFound` - Hunt does not exist
     /// * `InvalidHuntStatus` - Hunt is not in Active status, is not private (use
     ///   `register_player` instead), or has no invite code configured
-    /// * `InvalidAnswer` - The provided invite code is empty or does not match
+    /// * `InvalidAnswer` - The invite code is empty, exceeds 256 bytes, or does not match
     /// * `DuplicateRegistration` - Player is already registered for this hunt
     pub fn register_with_invite(
         env: Env,
@@ -2443,10 +2446,10 @@ impl HuntyCore {
         // Hash the provided invite code with the same salt (hunt_id) and compare.
         // Use the same buffer-based approach as generate_invite_code for consistency.
         let code_len = invite_code.len() as usize;
-        if code_len == 0 {
+        if code_len == 0 || code_len > MAX_INVITE_CODE_LENGTH {
             return Err(HuntErrorCode::InvalidAnswer);
         }
-        let mut buf = [0u8; 264]; // 8 (hunt_id) + 256 (max invite code)
+        let mut buf = [0u8; 8 + MAX_INVITE_CODE_LENGTH];
         buf[..8].copy_from_slice(&hunt_id.to_be_bytes());
         invite_code.copy_into_slice(&mut buf[8..8 + code_len]);
         let salted = Bytes::from_slice(&env, &buf[..8 + code_len]);
