@@ -1695,6 +1695,45 @@ impl Storage {
             })
     }
 
+    /// Returns up to `count` player addresses starting at `start_index` from
+    /// the persistent registration index for a hunt.
+    ///
+    /// Only the requested slice of the index is read, so paging callers never
+    /// have to load the whole player list (keeping them O(window) instead of
+    /// O(total registrations)). Out-of-range requests return an empty vector.
+    pub fn get_player_addresses_range(
+        env: &Env,
+        hunt_id: u64,
+        start_index: u32,
+        count: u32,
+    ) -> Vec<Address> {
+        let mut addrs = Vec::new(env);
+
+        if count == 0 {
+            return addrs;
+        }
+
+        let total = Self::get_player_count(env, hunt_id);
+
+        if start_index >= total {
+            return addrs;
+        }
+
+        let end = core::cmp::min(start_index.saturating_add(count), total);
+
+        for i in start_index..end {
+            let entry_key = Self::player_entry_key(hunt_id, i);
+
+            if let Some(addr) = env.storage().persistent().get::<_, Address>(&entry_key) {
+                Self::touch_persistent_index(env, &entry_key);
+
+                addrs.push_back(addr);
+            }
+        }
+
+        addrs
+    }
+
     pub fn get_player_addresses_for_hunt(env: &Env, hunt_id: u64) -> Vec<Address> {
         Self::migrate_player_index_from_instance(env, hunt_id);
 
