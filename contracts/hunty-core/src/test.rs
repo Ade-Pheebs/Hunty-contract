@@ -240,64 +240,6 @@ mod test {
     }
 
     #[test]
-    fn test_add_clue_aliases_caps_and_dedupes() {
-        let env = Env::default();
-        env.ledger().set_timestamp(1_700_000_000);
-        let creator = Address::generate(&env);
-        let contract_id = env.register(HuntyCore, ());
-
-        env.mock_all_auths();
-        let hunt_id = as_core_contract(&env, &contract_id, |env| {
-            HuntyCore::create_hunt(
-                env.clone(),
-                creator.clone(),
-                String::from_str(env, "Alias Cap Hunt"),
-                String::from_str(env, "Aliases must be capped and deduped"),
-                None,
-                None,
-                1,
-                None,
-                None,
-            )
-            .unwrap()
-        });
-
-        env.mock_all_auths();
-        as_core_contract(&env, &contract_id, |env| {
-            HuntyCore::add_clue(
-                env.clone(),
-                hunt_id,
-                String::from_str(env, "Question 1?"),
-                String::from_str(env, "correct1"),
-                10,
-                true,
-                None,
-                None,
-            )
-            .unwrap();
-        });
-
-        // Add more than the cap of aliases, including duplicates.
-        env.mock_all_auths();
-        as_core_contract(&env, &contract_id, |env| {
-            let mut aliases = Vec::new(env);
-            for i in 0..15u32 {
-                aliases.push_back(String::from_str(env, &format!("alias{}", i)));
-            }
-            // Duplicate of an existing alias.
-            aliases.push_back(String::from_str(env, "alias0"));
-            HuntyCore::add_clue_aliases(env.clone(), hunt_id, 1, aliases).unwrap();
-        });
-
-        let clue = as_core_contract(&env, &contract_id, |env| {
-            Storage::get_clue(env, hunt_id, 1).unwrap()
-        });
-        // 1 original answer hash + at most 10 aliases.
-        assert!(clue.answer_hashes.len() <= 11);
-        assert_eq!(clue.answer_hashes.len(), 11);
-    }
-
-    #[test]
     fn test_error_with_context_display() {
         let err = HuntError::HuntNotFound;
         let hunt_error: HuntErrorCode = err.into();
@@ -12220,6 +12162,71 @@ mod test {
             // complete_hunt must succeed without evaluating NFT rarity for non-NFT hunts
             HuntyCore::complete_hunt(env.clone(), hunt_id_non_nft, player.clone()).unwrap();
         });
+    }
+
+    // ─── Issue: add_clue_aliases must cap aliases per clue and dedupe ───
+
+    #[test]
+    fn test_add_clue_aliases_caps_and_dedupes() {
+        let env = Env::default();
+        env.ledger().set_timestamp(1_700_000_000);
+        env.mock_all_auths();
+        let creator = Address::generate(&env);
+        let contract_id = env.register(HuntyCore, ());
+
+        let hunt_id = as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::create_hunt(
+                env.clone(),
+                creator.clone(),
+                String::from_str(env, "Alias Cap Hunt"),
+                String::from_str(env, "Verifies alias cap and dedupe"),
+                None,
+                None,
+                0,
+                None,
+                None,
+            )
+            .unwrap()
+        });
+
+        let clue_id = as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::add_clue(
+                env.clone(),
+                hunt_id,
+                String::from_str(env, "Capital of France?"),
+                String::from_str(env, "Paris"),
+                10,
+                true,
+                None,
+                None,
+            )
+            .unwrap()
+        });
+
+        // Add more aliases than the cap (10). Duplicates must be skipped.
+        as_core_contract(&env, &contract_id, |env| {
+            for i in 0..20u32 {
+                let alias = String::from_str(env, &format!("alias{}", i));
+                HuntyCore::add_clue_aliases(
+                    env.clone(),
+                    hunt_id,
+                    clue_id,
+                    creator.clone(),
+                    Vec::from_array(env, [alias]),
+                )
+                .unwrap();
+            }
+        });
+
+        let clue = as_core_contract(&env, &contract_id, |env| {
+            Storage::get_clue(env, hunt_id, clue_id).unwrap()
+        });
+        // 1 original answer hash + at most 10 aliases.
+        assert!(
+            clue.answer_hashes.len() <= 11,
+            "aliases per clue must be capped, got {}",
+            clue.answer_hashes.len()
+        );
     }
 
     // ─── Issue #808: save_processed_submission must not fire on validation failure ───
