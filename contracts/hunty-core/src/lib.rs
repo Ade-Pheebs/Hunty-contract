@@ -655,6 +655,37 @@ impl HuntyCore {
         Ok(hunt.end_time)
     }
 
+    /// Returns whether the hunt is in a terminal state.
+    ///
+    /// A hunt is terminal once it can no longer accept new play or be
+    /// reactivated: `Completed`, `Cancelled`, or `Archived`. This view is
+    /// consumed by the reward manager to decide whether a pool may be
+    /// refunded to its creator.
+    pub fn is_hunt_terminal(env: Env, hunt_id: u64) -> Result<bool, HuntErrorCode> {
+        let hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
+        Ok(matches!(
+            hunt.status,
+            HuntStatus::Completed | HuntStatus::Cancelled | HuntStatus::Archived
+        ))
+    }
+
+    /// Returns whether the hunt is expired or cancelled.
+    ///
+    /// A hunt is considered expired when it has an `end_time` set and the
+    /// current ledger timestamp is at or past that end time. A hunt is
+    /// cancelled when its status is `Cancelled`. This view is consumed by the
+    /// reward manager to decide whether a pool may be migrated to a new hunt.
+    pub fn is_hunt_expired_or_cancelled(env: Env, hunt_id: u64) -> Result<bool, HuntErrorCode> {
+        let hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
+        if hunt.status == HuntStatus::Cancelled {
+            return Ok(true);
+        }
+        if hunt.end_time != 0 && env.ledger().timestamp() >= hunt.end_time {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     /// Adds a clue to a hunt. Only the hunt creator can add clues.
     /// Answers are hashed with SHA256 before storage. The ledger is public, so this is not a
     /// secrecy guarantee; answer verification remains on-chain through plaintext submissions.

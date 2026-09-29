@@ -1319,19 +1319,11 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
-        // Verify the hunt is in a terminal state (Cancelled or past end_time)
-        // Query HuntyCore for hunt status and end_time
-        let hunty_core_addr = Storage::get_hunty_core(&env);
-        if let Some(core_addr) = hunty_core_addr {
-            // Call hunty_core to check if hunt is terminal
-            let is_terminal: bool = env.invoke_contract(
-                &core_addr,
-                &Symbol::new(&env, "is_hunt_terminal"),
-                soroban_sdk::vec![&env, hunt_id.into_val(&env)],
-            );
-            if !is_terminal {
-                return Err(RewardErrorCode::InvalidHuntStatus);
-            }
+        // Verify the hunt is in a terminal state (Cancelled or past end_time).
+        // HuntyCore exposes this as `is_hunt_terminal`; when HuntyCore is not
+        // configured the check is skipped and the creator is trusted.
+        if !Self::is_hunt_terminal(&env, hunt_id) {
+            return Err(RewardErrorCode::InvalidHuntStatus);
         }
 
         let balance = Storage::get_pool_balance(&env, hunt_id);
@@ -1574,21 +1566,20 @@ impl RewardManager {
     /// the configured HuntyCore contract. When HuntyCore is not configured, or
     /// the cross-contract call fails, the source is treated as not eligible.
     fn source_hunt_is_migratable(env: &Env, hunt_id: u64) -> bool {
-        match Storage::get_hunty_core(env) {
-            Some(hunty_core) => {
-                let mut args: Vec<Val> = Vec::new(env);
-                args.push_back(hunt_id.into_val(env));
-                matches!(
-                    env.try_invoke_contract::<bool, RewardErrorCode>(
-                        &hunty_core,
-                        &Symbol::new(env, "is_hunt_expired_or_cancelled"),
-                        args,
-                    ),
-                    Ok(Ok(true))
-                )
-            }
-            None => false,
-        }
+        let hunty_core = match Storage::get_hunty_core(env) {
+            Some(c) => c,
+            None => return false,
+        };
+        let mut args: Vec<Val> = Vec::new(env);
+        args.push_back(hunt_id.into_val(env));
+        matches!(
+            env.try_invoke_contract::<bool, RewardErrorCode>(
+                &hunty_core,
+                &Symbol::new(env, "is_hunt_expired_or_cancelled"),
+                args,
+            ),
+            Ok(Ok(true))
+        )
     }
 
     /// Returns the full status of a reward pool, including balance, totals, and configuration.
