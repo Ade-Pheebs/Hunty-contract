@@ -51,6 +51,8 @@ mod tests {
 }
 
 #[cfg(test)]
+mod list_hunts_test;
+#[cfg(test)]
 #[path = "paused_status_test.rs"]
 mod paused_status_test;
 const MAX_QUESTION_LENGTH: u32 = 2000;
@@ -898,14 +900,18 @@ impl HuntyCore {
     /// A `limit` of `0` defaults to `DEFAULT_PAGE_SIZE`.
     pub fn list_hunts(env: Env, offset: u32, limit: u32) -> Vec<Hunt> {
         let limit = if limit == 0 { DEFAULT_PAGE_SIZE } else { limit };
+        let effective_limit = limit.min(MAX_BATCH_SIZE);
         let counter = Storage::get_hunt_counter(&env);
         let mut hunts = Vec::new(&env);
-        let mut current = offset;
-        let max_to_check = offset + limit.min(MAX_BATCH_SIZE) + 100; // Add buffer for skipped archived
-        let end_check = max_to_check.min(counter as u32);
+        let mut current = u64::from(offset);
+        // Keep the scan in the hunt counter's range, with a bounded buffer for skipped hunts.
+        let max_to_check = current
+            .saturating_add(u64::from(effective_limit))
+            .saturating_add(100);
+        let end_check = max_to_check.min(counter);
 
-        while current < end_check && hunts.len() < limit.min(MAX_BATCH_SIZE) {
-            let hunt_id = (current as u64) + 1;
+        while current < end_check && hunts.len() < effective_limit {
+            let hunt_id = current + 1;
             if let Some(hunt) = Storage::get_hunt(&env, hunt_id) {
                 if hunt.status != HuntStatus::Archived {
                     hunts.push_back(hunt);
