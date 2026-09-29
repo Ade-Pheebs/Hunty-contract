@@ -1336,15 +1336,7 @@ impl HuntyCore {
         }
         let mut buf = [0u8; 200];
         uri.copy_into_slice(&mut buf[..len as usize]);
-        let text = unsafe { core::str::from_utf8_unchecked(&buf[..len as usize]) };
-
-        if let Some(authority) = text.strip_prefix("https://") {
-            return !authority.is_empty() && !authority.bytes().all(|b| b == b' ');
-        }
-        if let Some(cid) = text.strip_prefix("ipfs://") {
-            return cid.len() >= 46;
-        }
-        false
+        hunty_common::uri::image_uri_is_valid(&buf[..len as usize])
     }
 
     /// Resolves the XLM amount for the completing player.
