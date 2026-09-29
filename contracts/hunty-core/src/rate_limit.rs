@@ -1,4 +1,4 @@
-﻿use crate::errors::HuntErrorCode;
+use crate::errors::HuntErrorCode;
 use crate::storage::Storage;
 use crate::types::RateLimitStatus;
 use soroban_sdk::{contracttype, Address, Env, Symbol};
@@ -32,7 +32,10 @@ impl RateLimiter {
     }
 
     fn legacy_key(env: &Env, creator: &Address) -> (Symbol, Address) {
-        (Symbol::new(env, RATE_LIMIT_LEGACY_NAMESPACE), creator.clone())
+        (
+            Symbol::new(env, RATE_LIMIT_LEGACY_NAMESPACE),
+            creator.clone(),
+        )
     }
 
     /// Read the rate limit data for a creator, migrating legacy entries if needed.
@@ -51,14 +54,10 @@ impl RateLimiter {
             .persistent()
             .get::<Address, RateLimitData>(creator)
         {
-            env
-                .storage()
+            env.storage()
                 .persistent()
                 .set(&Self::legacy_key(env, creator), &data);
-            env
-                .storage()
-                .persistent()
-                .remove(&creator);
+            env.storage().persistent().remove(&creator);
             return Some(data);
         }
 

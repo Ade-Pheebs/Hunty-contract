@@ -352,4 +352,3 @@ fn test_first_clue_hint_request_saturates_at_zero() {
     assert_eq!(progress.total_score, 0);
     assert_eq!(progress.hinted_clues.len(), 1);
 }
-

@@ -80,6 +80,8 @@ pub struct Hunt {
     pub allow_partial_scoring: bool,
     /// When true, players may form teams and share clue progress.
     pub team_mode: bool,
+    /// Default point value applied to clues with 0 points. Clue-level points override this.
+    pub default_points: u32,
     /// Minimum seconds a player must wait between attempts on the same clue.
     pub attempt_cooldown_secs: u32,
     /// Maximum number of players allowed to register. 0 = unlimited.
@@ -365,7 +367,7 @@ impl PlayerProgress {
             total_score: self.total_score,
             started_at_delta,
             completed_at_delta,
-            flags: flags.into(),
+            flags,
             recent_submissions: self.recent_submissions.clone(),
             clue_last_attempts: self.clue_last_attempts.clone(),
             required_completed_count: self.required_completed_count,
@@ -860,6 +862,14 @@ pub struct TeamMemberJoinedEvent {
 pub struct RegistrationDeadlineSetEvent {
     pub hunt_id: u64,
     pub registration_deadline: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct HuntDifficultyOverrideSetEvent {
+    pub hunt_id: u64,
+    pub caller: Address,
+    pub difficulty_override: Option<u32>,
 }
 
 #[contracttype]
