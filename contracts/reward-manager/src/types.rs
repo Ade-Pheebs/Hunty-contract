@@ -218,6 +218,26 @@ pub enum PoolOperation {
     Migrate = 6,
     /// Unused balance was refunded to the pool creator.
     Refund = 7,
+    /// `update_pool_config` changed `min_distribution_amount` (`amount` = new value).
+    UpdateMinAmount = 8,
+    /// `set_pool_target_amount` changed the funding target (`amount` = new value).
+    SetTargetAmount = 9,
+    /// `set_min_distribution_interval` changed the distribution cooldown.
+    SetDistributionInterval = 10,
+    /// `set_distribution_mode` switched between Fixed and Proportional.
+    SetDistributionMode = 11,
+    /// `set_pool_nft_contract` set or cleared the pool's NFT contract.
+    SetNftContract = 12,
+    /// `add_delegate` authorised a new distribution delegate.
+    AddDelegate = 13,
+    /// `remove_delegate` revoked a distribution delegate.
+    RemoveDelegate = 14,
+    /// `set_vesting_period_secs` changed the vesting period.
+    SetVestingPeriod = 15,
+    /// `set_pool_tiers` replaced the time-based tier schedule.
+    SetTimeTiers = 16,
+    /// `set_pool_rank_tiers` replaced the rank-based tier schedule.
+    SetRankTiers = 17,
 }
 
 /// Comprehensive statistics for a reward pool, returned by get_pool_statistics().
