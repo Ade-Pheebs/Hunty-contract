@@ -49,6 +49,16 @@ const MAX_BATCH_SIZE: u32 = 10;
 /// an arbitrarily large number of distributions.
 const MAX_ANALYTICS_ENTRIES: u32 = 500;
 
+/// Maximum number of entries allowed in a pool's time-based or rank-based tier
+/// list (issue #1081).
+///
+/// The whole `RewardPoolConfig` — tiers included — is read on every
+/// distribution and by HuntyCore at completion, so a pathologically long tier
+/// list would make every payout for that hunt expensive or impossible. Both
+/// `set_pool_tiers` and `set_pool_rank_tiers` reject lists longer than this cap
+/// with `InvalidConfig`, leaving any previously stored config untouched.
+pub const MAX_TIER_ENTRIES: u32 = 20;
+
 #[contract]
 pub struct RewardManager;
 
@@ -837,8 +847,9 @@ impl RewardManager {
     /// # Errors
     /// * `PoolNotFound` - No pool exists for this hunt_id
     /// * `Unauthorized` - Caller is not the pool creator
-    /// * `InvalidConfig` - Tier list (when non-empty) contains a zero/negative
-    ///   amount or is not strictly ascending
+    /// * `InvalidConfig` - Tier list is longer than [`MAX_TIER_ENTRIES`], or
+    ///   (when non-empty) contains a zero/negative amount or is not strictly
+    ///   ascending
     pub fn set_pool_tiers(
         env: Env,
         creator: Address,
@@ -854,9 +865,16 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
+        // Bound the tier list so the per-distribution config read stays cheap
+        // and deterministic (issue #1081). Reject before any mutation so a
+        // rejected oversized list never overwrites the stored config.
+        let tiers_len = time_based_tiers.len();
+        if tiers_len > MAX_TIER_ENTRIES {
+            return Err(RewardErrorCode::InvalidConfig);
+        }
+
         // Empty tier list is a valid opt-out from tier-based rewards — it
         // disables the feature for this pool. Non-empty lists must validate.
-        let tiers_len = time_based_tiers.len();
         if tiers_len > 0 {
             if let Err(_err) = tiers_are_strictly_ascending(&time_based_tiers) {
                 return Err(RewardErrorCode::InvalidConfig);
@@ -885,6 +903,12 @@ impl RewardManager {
     ///
     /// Only the pool creator may change this configuration. Changes affect
     /// subsequent distributions and never rewrite an already-recorded payout.
+    ///
+    /// # Errors
+    /// * `PoolNotFound` - No pool exists for this hunt_id
+    /// * `Unauthorized` - Caller is not the pool creator
+    /// * `InvalidConfig` - Tier list is longer than [`MAX_TIER_ENTRIES`], or
+    ///   (when non-empty) is not strictly ascending with positive amounts
     pub fn set_pool_rank_tiers(
         env: Env,
         creator: Address,
@@ -900,13 +924,19 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
+        // Bound the tier list before any mutation (issue #1081): a rejected
+        // oversized list must not overwrite the stored config.
+        let tier_count = rank_based_tiers.len();
+        if tier_count > MAX_TIER_ENTRIES {
+            return Err(RewardErrorCode::InvalidConfig);
+        }
+
         if !rank_based_tiers.is_empty()
             && rank_tiers_are_strictly_ascending(&rank_based_tiers).is_err()
         {
             return Err(RewardErrorCode::InvalidConfig);
         }
 
-        let tier_count = rank_based_tiers.len();
         config.rank_based_tiers = rank_based_tiers;
         Storage::set_pool_config(&env, hunt_id, &config);
 
