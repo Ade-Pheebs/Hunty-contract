@@ -1671,6 +1671,56 @@ fn test_search_nfts_no_matches() {
     assert_eq!(results.len(), 0);
 }
 
+#[test]
+fn test_search_nfts_pagination_beyond_max_scan_limit() {
+    let env = setup_env();
+    let (client, minter) = setup_nft_reward(&env, None);
+
+    let player = Address::generate(&env);
+
+    // Mint more NFTs than MAX_SCAN_LIMIT so the scan must be bounded and
+    // paginated via offset/limit rather than loading the whole collection.
+    let total: u64 = 120;
+    for i in 0..total {
+        let metadata = create_metadata(&env, &format!("NFT {}", i), "desc", "ipfs://test");
+        client.mint_reward_nft(&minter, &i, &player, &metadata);
+    }
+
+    // Walk the collection page by page using offset/limit. Every page must
+    // return at most `limit` results and the union must cover all NFTs.
+    let page_size: u32 = 25;
+    let mut offset: u32 = 0;
+    let mut seen: u32 = 0;
+    let mut iterations = 0;
+    loop {
+        let page = client.search_nfts_by_metadata(
+            &offset,
+            &page_size,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+        );
+        assert!(
+            page.len() <= page_size,
+            "page must not exceed requested limit"
+        );
+        if page.len() == 0 {
+            break;
+        }
+        seen += page.len();
+        offset += page.len();
+        iterations += 1;
+        assert!(iterations <= 20, "pagination did not terminate");
+    }
+
+    assert_eq!(seen, total as u32);
+}
+
 // ========== Initialization and Audit Event Tests ==========
 
 #[test]
