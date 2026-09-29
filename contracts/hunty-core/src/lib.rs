@@ -21,9 +21,8 @@ use crate::types::{
     HuntCreatedEvent, HuntDeactivatedEvent, HuntDescriptionUpdatedEvent, HuntGarbageCollectedEvent,
     HuntReactivatedEvent, HuntStatistics, HuntStatus, HuntStatusChangedEvent,
     InviteCodeGeneratedEvent, InviteCodeRevokedEvent, LeaderboardEntry, LeaderboardIndexEntry,
-    LeaderboardResult, LeaderboardVisibility, PlayerProgress, PlayerRegisteredEvent,
-    PlayerRegisteredWithInviteEvent, RewardClaimedEvent, RewardConfig, RewardManagerSetEvent,
-    LeaderboardResult, PlayerProgress, PlayerRegisteredEvent, PlayerRegisteredWithInviteEvent,
+    LeaderboardResult, LeaderboardVisibility, PlayerBannedEvent, PlayerProgress,
+    PlayerRegisteredEvent, PlayerRegisteredWithInviteEvent, PlayerUnbannedEvent,
     RegistrationDeadlineSetEvent, RewardClaimedEvent, RewardConfig, RewardManagerSetEvent,
     TimeBonusConfig,
 };
@@ -2521,6 +2520,70 @@ impl HuntyCore {
         };
         env.events()
             .publish((Symbol::new(&env, "InviteCodeRevoked"), hunt_id), event);
+
+        Ok(())
+    }
+
+    /// Bans a player from participating in a hunt.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `hunt_id` - The hunt to ban the player from
+    /// * `caller` - The hunt creator or the contract admin
+    /// * `player` - The player to ban
+    pub fn ban_player(
+        env: Env,
+        hunt_id: u64,
+        caller: Address,
+        player: Address,
+    ) -> Result<(), HuntErrorCode> {
+        caller.require_auth();
+
+        let is_admin = Storage::get_admin(&env).map(|a| a == caller).unwrap_or(false);
+        if !is_admin && !Storage::is_authorized_creator_or_co_creator(&env, hunt_id, &caller) {
+            return Err(HuntErrorCode::Unauthorized);
+        }
+
+        Storage::ban_player(&env, hunt_id, &player);
+
+        let event = PlayerBannedEvent {
+            hunt_id,
+            player: player.clone(),
+        };
+        env.events()
+            .publish((Symbol::new(&env, "PlayerBanned"), hunt_id), event);
+
+        Ok(())
+    }
+
+    /// Unbans a player from a hunt.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `hunt_id` - The hunt to unban the player from
+    /// * `caller` - The hunt creator or the contract admin
+    /// * `player` - The player to unban
+    pub fn unban_player(
+        env: Env,
+        hunt_id: u64,
+        caller: Address,
+        player: Address,
+    ) -> Result<(), HuntErrorCode> {
+        caller.require_auth();
+
+        let is_admin = Storage::get_admin(&env).map(|a| a == caller).unwrap_or(false);
+        if !is_admin && !Storage::is_authorized_creator_or_co_creator(&env, hunt_id, &caller) {
+            return Err(HuntErrorCode::Unauthorized);
+        }
+
+        Storage::unban_player(&env, hunt_id, &player);
+
+        let event = PlayerUnbannedEvent {
+            hunt_id,
+            player: player.clone(),
+        };
+        env.events()
+            .publish((Symbol::new(&env, "PlayerUnbanned"), hunt_id), event);
 
         Ok(())
     }
