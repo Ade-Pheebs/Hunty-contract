@@ -870,6 +870,7 @@ impl HuntyCore {
     /// * `Unauthorized` - Caller is not the hunt creator
     /// * `ClueNotFound` - Clue does not exist
     /// * `InvalidAnswer` - Any answer is empty or exceeds max length
+    /// * `TooManyAliases` - Adding aliases would exceed the per-clue alias cap
     pub fn add_clue_aliases(
         env: Env,
         hunt_id: u64,
@@ -885,12 +886,28 @@ impl HuntyCore {
         let mut clue =
             Storage::get_clue_or_error(&env, hunt_id, clue_id).map_err(HuntErrorCode::from)?;
 
+        let mut added_count: u32 = 0;
         for i in 0..answers.len() {
             // SAFETY: i is within the vector bounds established by the enclosing loop
             let answer = answers.get(i).unwrap();
             let hash = Self::normalize_and_hash_answer(&env, hunt_id, clue_id, &answer)
                 .map_err(HuntErrorCode::from)?;
+            let mut duplicate = false;
+            for j in 0..clue.answer_hashes.len() {
+                // SAFETY: j is within the vector bounds established by the enclosing loop
+                if clue.answer_hashes.get(j).unwrap() == hash {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if duplicate {
+                continue;
+            }
+            if clue.answer_hashes.len() >= MAX_ALIASES_PER_CLUE {
+                return Err(HuntErrorCode::TooManyAliases);
+            }
             clue.answer_hashes.push_back(hash);
+            added_count += 1;
         }
 
         Storage::save_clue(&env, hunt_id, &clue);
@@ -899,7 +916,7 @@ impl HuntyCore {
             hunt_id,
             clue_id,
             creator: hunt.creator.clone(),
-            aliases_count: answers.len(),
+            aliases_count: added_count,
         };
         env.events().publish(
             (Symbol::new(&env, "ClueAliasesAdded"), hunt_id, clue_id),
