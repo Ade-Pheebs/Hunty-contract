@@ -1401,6 +1401,7 @@ impl RewardManager {
     /// * The **destination pool must already exist** (created via
     ///   `create_reward_pool`).
     /// * **Both pools must have the same creator**, who must authorize the call.
+    /// * **Both pools must use the same token.**
     ///
     /// # Arguments
     /// * `creator` - The shared creator of both pools (must authorize the call)
@@ -1411,8 +1412,8 @@ impl RewardManager {
     /// The amount of XLM migrated from the source pool to the destination pool.
     ///
     /// # Errors
-    /// * `InvalidMigration` - source and destination are the same hunt, or the
-    ///   source pool has no balance to migrate
+    /// * `InvalidMigration` - source and destination are the same hunt, use
+    ///   different tokens, or the source pool has no balance to migrate
     /// * `PoolNotFound` - the source pool does not exist
     /// * `DestinationPoolNotFound` - the destination pool does not exist
     /// * `Unauthorized` - the caller does not own both pools
@@ -1444,6 +1445,13 @@ impl RewardManager {
             .ok_or(RewardErrorCode::DestinationPoolNotFound)?;
         if creator != dest_config.creator {
             return Err(RewardErrorCode::Unauthorized);
+        }
+
+        // Pool balances are denominated in their configured token. Moving a
+        // balance between pools with different tokens would credit an amount
+        // of one token against another token's balance.
+        if source_config.token_address != dest_config.token_address {
+            return Err(RewardErrorCode::InvalidMigration);
         }
 
         // Source hunt must be expired or cancelled (source of truth: HuntyCore).
