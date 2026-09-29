@@ -224,6 +224,11 @@ impl HuntyCore {
             return Err(HuntErrorCode::InvalidTimeBonusConfig);
         }
 
+        let default_points_val = default_points.unwrap_or(100);
+        if !(MIN_CLUE_POINTS..=MAX_CLUE_POINTS).contains(&default_points_val) {
+            return Err(HuntErrorCode::InvalidPoints);
+        }
+
         // Generate unique hunt ID
         let hunt_id = Storage::next_hunt_id(&env);
 
@@ -265,7 +270,7 @@ impl HuntyCore {
             registration_deadline: 0,
             allow_partial_scoring: false,
             team_mode: false,
-            default_points: default_points.unwrap_or(100),
+            default_points: default_points_val,
             attempt_cooldown_secs: 0,
             max_players: 0,
             is_private: false,
@@ -735,13 +740,15 @@ impl HuntyCore {
             return Err(HuntErrorCode::InvalidQuestion);
         }
 
+        let mut final_points = points;
+        if final_points == 0 {
+            let hunt = Storage::get_hunt_or_error(env, hunt_id).map_err(HuntErrorCode::from)?;
+            final_points = hunt.default_points;
+        }
         // Clue points must stay within [MIN_CLUE_POINTS, MAX_CLUE_POINTS].
-        // 0 is treated as unset (invalid), and a value above the cap multiplies
-        // into a score that saturates u32, tying the leaderboard.
-        if !(MIN_CLUE_POINTS..=MAX_CLUE_POINTS).contains(&points) {
+        if !(MIN_CLUE_POINTS..=MAX_CLUE_POINTS).contains(&final_points) {
             return Err(HuntErrorCode::InvalidPoints);
         }
-        let final_points = points;
         let question = crate::sanitization::StringSanitizer::sanitize(
             env,
             &question,

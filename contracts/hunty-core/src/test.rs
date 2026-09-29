@@ -3906,7 +3906,7 @@ mod test {
             let question = String::from_str(&env, "Q");
             let answer = String::from_str(&env, "a");
 
-            let err = with_core_contract(&env, |env, _cid| {
+            with_core_contract(&env, |env, _cid| {
                 let hid = HuntyCore::create_hunt(
                     env.clone(),
                     creator,
@@ -3920,10 +3920,8 @@ mod test {
                 )
                 .unwrap();
                 HuntyCore::add_clue(env.clone(), hid, question, answer, 0, false, Some(1), None)
-                    .unwrap_err()
+                    .unwrap();
             });
-
-            assert_eq!(err, HuntErrorCode::InvalidPoints);
         }
 
         #[test]
