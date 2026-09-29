@@ -21,9 +21,8 @@ use crate::types::{
     HuntCreatedEvent, HuntDeactivatedEvent, HuntDescriptionUpdatedEvent, HuntGarbageCollectedEvent,
     HuntReactivatedEvent, HuntStatistics, HuntStatus, HuntStatusChangedEvent,
     InviteCodeGeneratedEvent, InviteCodeRevokedEvent, LeaderboardEntry, LeaderboardIndexEntry,
-    LeaderboardResult, LeaderboardVisibility, PlayerProgress, PlayerRegisteredEvent,
-    PlayerRegisteredWithInviteEvent, RewardClaimedEvent, RewardConfig, RewardManagerSetEvent,
-    LeaderboardResult, PlayerProgress, PlayerRegisteredEvent, PlayerRegisteredWithInviteEvent,
+    LeaderboardResult, LeaderboardVisibility, PlayerBannedEvent, PlayerProgress,
+    PlayerRegisteredEvent, PlayerRegisteredWithInviteEvent, PlayerUnbannedEvent,
     RegistrationDeadlineSetEvent, RewardClaimedEvent, RewardConfig, RewardManagerSetEvent,
     TimeBonusConfig,
 };
@@ -2525,6 +2524,70 @@ impl HuntyCore {
         Ok(())
     }
 
+    /// Bans a player from participating in a hunt.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `hunt_id` - The hunt to ban the player from
+    /// * `caller` - The hunt creator or the contract admin
+    /// * `player` - The player to ban
+    pub fn ban_player(
+        env: Env,
+        hunt_id: u64,
+        caller: Address,
+        player: Address,
+    ) -> Result<(), HuntErrorCode> {
+        caller.require_auth();
+
+        let is_admin = Storage::get_admin(&env).map(|a| a == caller).unwrap_or(false);
+        if !is_admin && !Storage::is_authorized_creator_or_co_creator(&env, hunt_id, &caller) {
+            return Err(HuntErrorCode::Unauthorized);
+        }
+
+        Storage::ban_player(&env, hunt_id, &player);
+
+        let event = PlayerBannedEvent {
+            hunt_id,
+            player: player.clone(),
+        };
+        env.events()
+            .publish((Symbol::new(&env, "PlayerBanned"), hunt_id), event);
+
+        Ok(())
+    }
+
+    /// Unbans a player from a hunt.
+    ///
+    /// # Arguments
+    /// * `env` - The Soroban environment
+    /// * `hunt_id` - The hunt to unban the player from
+    /// * `caller` - The hunt creator or the contract admin
+    /// * `player` - The player to unban
+    pub fn unban_player(
+        env: Env,
+        hunt_id: u64,
+        caller: Address,
+        player: Address,
+    ) -> Result<(), HuntErrorCode> {
+        caller.require_auth();
+
+        let is_admin = Storage::get_admin(&env).map(|a| a == caller).unwrap_or(false);
+        if !is_admin && !Storage::is_authorized_creator_or_co_creator(&env, hunt_id, &caller) {
+            return Err(HuntErrorCode::Unauthorized);
+        }
+
+        Storage::unban_player(&env, hunt_id, &player);
+
+        let event = PlayerUnbannedEvent {
+            hunt_id,
+            player: player.clone(),
+        };
+        env.events()
+            .publish((Symbol::new(&env, "PlayerUnbanned"), hunt_id), event);
+
+        Ok(())
+    }
+
     /// Registers a player for a private hunt using a valid invite code.
     ///
     /// The provided invite code is hashed (with hunt_id as salt) and compared against
@@ -3391,7 +3454,10 @@ impl HuntyCore {
     ) -> Result<LeaderboardResult, HuntErrorCode> {
         // Cache existence check (cheaper than loading full Hunt)
         Storage::get_hunt_cache(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
-        let total_players = Storage::get_hunt_players(&env, hunt_id).len();
+        // The registration counter is the canonical player total and costs a
+        // single entry read, instead of loading every player's progress record
+        // just to count them.
+        let total_players = Storage::get_player_count(&env, hunt_id);
         let effective_limit = core::cmp::min(limit, MAX_LEADERBOARD_SIZE);
         let entries = Storage::get_leaderboard_index(&env, hunt_id);
         let mut result = Vec::new(&env);
@@ -3420,7 +3486,9 @@ impl HuntyCore {
     /// their compact rows. This method enables clients to page through all
     /// registered players in multiple calls (bounded by `MAX_LEADERBOARD_SCAN_SIZE`)
     /// and merge results off-chain to build a full leaderboard without a single
-    /// large on-chain scan. This read path is public; the `_caller` argument is
+    /// large on-chain scan. Only the requested registration slice is read, so
+    /// the cost of a page depends on `window_size`, not on how many players the
+    /// hunt has. This read path is public; the `_caller` argument is
     /// accepted for forward compatibility and is currently ignored.
     pub fn get_hunt_leaderboard_window(
         env: Env,
@@ -3432,23 +3500,33 @@ impl HuntyCore {
         Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
 
         let queried_at = env.ledger().timestamp();
-        let players = Storage::get_hunt_players(&env, hunt_id);
-        let total_players = players.len();
+        // One counter read replaces loading the full player list just to learn
+        // how many registrations exist.
+        let total_players = Storage::get_player_count(&env, hunt_id);
 
         let start = core::cmp::min(start_index, total_players);
         let capped_window = core::cmp::min(window_size, MAX_LEADERBOARD_SCAN_SIZE);
         let end = core::cmp::min(start.saturating_add(capped_window), total_players);
 
+        // Load progress only for the players inside the requested window.
+        let players =
+            Storage::get_player_addresses_range(&env, hunt_id, start, end.saturating_sub(start));
+
         let mut rows = Vec::new(&env);
-        for i in start..end {
-            // SAFETY: start..end is clamped to [0, players.len())
-            let p = players.get(i).unwrap();
+        for offset in 0..players.len() {
+            // SAFETY: offset is in [0, players.len())
+            let player = players.get(offset).unwrap();
+            let progress = match Storage::get_player_progress(&env, hunt_id, &player) {
+                Some(progress) => progress,
+                // A dangling index entry must not abort the whole page.
+                None => continue,
+            };
             rows.push_back(crate::types::LeaderboardRow {
-                index: i,
-                player: p.player.clone(),
-                score: p.total_score,
-                completed_at: p.completed_at,
-                is_completed: p.is_completed,
+                index: start.saturating_add(offset),
+                player,
+                score: progress.total_score,
+                completed_at: progress.completed_at,
+                is_completed: progress.is_completed,
             });
         }
 
