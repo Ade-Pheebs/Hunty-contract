@@ -4850,4 +4850,157 @@ mod test {
         assert_eq!(get_balance(&env, &token_address, &player1), 50_000_000);
         assert_eq!(get_balance(&env, &token_address, &player2), 50_000_000);
     }
+
+    // ========== #1079: config setters write audit entries ==========
+
+    #[test]
+    fn test_config_setters_append_audit_entries() {
+        use crate::types::PoolOperation as Op;
+
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let (contract_id, token_address, _) = setup(&env);
+        let creator = Address::generate(&env);
+        let delegate = Address::generate(&env);
+        let nft = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            create_pool_with_token(&env, creator.clone(), 1, token_address.clone(), 0).unwrap();
+            // Entry 0 is the Create entry.
+            assert_eq!(Storage::get_pool_audit_count(&env, 1), 1);
+
+            RewardManager::update_pool_config(env.clone(), creator.clone(), 1, 100).unwrap();
+            RewardManager::set_pool_target_amount(env.clone(), creator.clone(), 1, 5_000).unwrap();
+            RewardManager::set_min_distribution_interval(env.clone(), creator.clone(), 1, 60)
+                .unwrap();
+            RewardManager::set_distribution_mode(
+                env.clone(),
+                creator.clone(),
+                1,
+                DistributionMode::Proportional,
+            )
+            .unwrap();
+            RewardManager::set_pool_nft_contract(env.clone(), creator.clone(), 1, Some(nft))
+                .unwrap();
+            RewardManager::add_delegate(env.clone(), creator.clone(), 1, delegate.clone())
+                .unwrap();
+            RewardManager::remove_delegate(env.clone(), creator.clone(), 1, delegate.clone())
+                .unwrap();
+            RewardManager::set_vesting_period_secs(env.clone(), creator.clone(), 1, 3_600)
+                .unwrap();
+
+            let expected = [
+                (Op::UpdateMinAmount, Some(100)),
+                (Op::SetTargetAmount, Some(5_000)),
+                (Op::SetDistributionInterval, None),
+                (Op::SetDistributionMode, None),
+                (Op::SetNftContract, None),
+                (Op::AddDelegate, None),
+                (Op::RemoveDelegate, None),
+                (Op::SetVestingPeriod, None),
+            ];
+            assert_eq!(Storage::get_pool_audit_count(&env, 1), 1 + expected.len() as u64);
+            for (i, (op, amount)) in expected.iter().enumerate() {
+                let entry = Storage::get_pool_audit_entry(&env, 1, 1 + i as u64).unwrap();
+                assert_eq!(&entry.operation, op);
+                assert_eq!(&entry.amount, amount);
+                assert_eq!(entry.actor, creator);
+            }
+        });
+    }
+
+    #[test]
+    fn test_delegate_noops_do_not_append_audit_entries() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let (contract_id, token_address, _) = setup(&env);
+        let creator = Address::generate(&env);
+        let delegate = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            create_pool_with_token(&env, creator.clone(), 1, token_address.clone(), 0).unwrap();
+            // Removing someone who is not a delegate changes nothing.
+            RewardManager::remove_delegate(env.clone(), creator.clone(), 1, delegate.clone())
+                .unwrap();
+            RewardManager::add_delegate(env.clone(), creator.clone(), 1, delegate.clone())
+                .unwrap();
+            // Re-adding an existing delegate changes nothing.
+            RewardManager::add_delegate(env.clone(), creator.clone(), 1, delegate.clone())
+                .unwrap();
+            // Create + a single AddDelegate.
+            assert_eq!(Storage::get_pool_audit_count(&env, 1), 2);
+        });
+    }
+
+    #[test]
+    fn test_failed_config_setter_appends_nothing() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let (contract_id, token_address, _) = setup(&env);
+        let creator = Address::generate(&env);
+        let stranger = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            create_pool_with_token(&env, creator.clone(), 1, token_address.clone(), 0).unwrap();
+            assert!(RewardManager::update_pool_config(env.clone(), stranger, 1, 5).is_err());
+            assert!(RewardManager::update_pool_config(env.clone(), creator, 1, -1).is_err());
+            assert_eq!(Storage::get_pool_audit_count(&env, 1), 1);
+        });
+    }
+
+    #[test]
+    fn test_config_setters_emit_events() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let (contract_id, token_address, _) = setup(&env);
+        let creator = Address::generate(&env);
+        let delegate = Address::generate(&env);
+        let nft = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            create_pool_with_token(&env, creator.clone(), 1, token_address.clone(), 0).unwrap();
+            RewardManager::update_pool_config(env.clone(), creator.clone(), 1, 100).unwrap();
+            RewardManager::set_pool_target_amount(env.clone(), creator.clone(), 1, 5_000).unwrap();
+            RewardManager::set_min_distribution_interval(env.clone(), creator.clone(), 1, 60)
+                .unwrap();
+            RewardManager::set_distribution_mode(
+                env.clone(),
+                creator.clone(),
+                1,
+                DistributionMode::Proportional,
+            )
+            .unwrap();
+            RewardManager::set_pool_nft_contract(env.clone(), creator.clone(), 1, Some(nft))
+                .unwrap();
+            RewardManager::add_delegate(env.clone(), creator.clone(), 1, delegate.clone())
+                .unwrap();
+            RewardManager::remove_delegate(env.clone(), creator.clone(), 1, delegate).unwrap();
+            RewardManager::set_vesting_period_secs(env.clone(), creator.clone(), 1, 3_600)
+                .unwrap();
+
+            let events = all_events_legacy(&env);
+            let count_topic = |topic: Symbol| {
+                let expected: Val = topic.into_val(&env);
+                events
+                    .iter()
+                    .filter(|e| {
+                        e.1.get(0).map(|t| t.get_payload()) == Some(expected.get_payload())
+                    })
+                    .count()
+            };
+
+            for topic in [
+                symbol_short!("PL_MINAMT"),
+                symbol_short!("PL_TARGET"),
+                symbol_short!("PL_INTVL"),
+                symbol_short!("PL_MODE"),
+                symbol_short!("PL_NFT"),
+                symbol_short!("DLG_ADD"),
+                symbol_short!("DLG_REM"),
+                symbol_short!("PL_VEST"),
+            ] {
+                assert_eq!(count_topic(topic.clone()), 1, "expected one {topic:?} event");
+            }
+        });
+    }
 }

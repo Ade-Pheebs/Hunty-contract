@@ -693,8 +693,21 @@ impl RewardManager {
             return Err(RewardErrorCode::InvalidAmount);
         }
 
+        let old_value = config.min_distribution_amount;
         config.min_distribution_amount = min_distribution_amount;
         Storage::set_pool_config(&env, hunt_id, &config);
+
+        env.events().publish(
+            (symbol_short!("PL_MINAMT"), hunt_id),
+            (creator.clone(), old_value, min_distribution_amount),
+        );
+        Self::record_config_change(
+            &env,
+            hunt_id,
+            &creator,
+            PoolOperation::UpdateMinAmount,
+            Some(min_distribution_amount),
+        );
 
         Ok(())
     }
@@ -719,8 +732,21 @@ impl RewardManager {
             return Err(RewardErrorCode::InvalidAmount);
         }
 
+        let old_value = config.target_amount;
         config.target_amount = target_amount;
         Storage::set_pool_config(&env, hunt_id, &config);
+
+        env.events().publish(
+            (symbol_short!("PL_TARGET"), hunt_id),
+            (creator.clone(), old_value, target_amount),
+        );
+        Self::record_config_change(
+            &env,
+            hunt_id,
+            &creator,
+            PoolOperation::SetTargetAmount,
+            Some(target_amount),
+        );
         Ok(())
     }
 
@@ -740,8 +766,21 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
+        let old_value = config.min_distribution_interval_secs;
         config.min_distribution_interval_secs = min_distribution_interval_secs;
         Storage::set_pool_config(&env, hunt_id, &config);
+
+        env.events().publish(
+            (symbol_short!("PL_INTVL"), hunt_id),
+            (creator.clone(), old_value, min_distribution_interval_secs),
+        );
+        Self::record_config_change(
+            &env,
+            hunt_id,
+            &creator,
+            PoolOperation::SetDistributionInterval,
+            None,
+        );
         Ok(())
     }
 
@@ -761,8 +800,21 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
+        let old_value = config.distribution_mode;
         config.distribution_mode = mode;
         Storage::set_pool_config(&env, hunt_id, &config);
+
+        env.events().publish(
+            (symbol_short!("PL_MODE"), hunt_id),
+            (creator.clone(), old_value, mode),
+        );
+        Self::record_config_change(
+            &env,
+            hunt_id,
+            &creator,
+            PoolOperation::SetDistributionMode,
+            None,
+        );
         Ok(())
     }
 
@@ -821,6 +873,7 @@ impl RewardManager {
             (symbol_short!("PL_TIERS"), hunt_id),
             (creator.clone(), tiers_len),
         );
+        Self::record_config_change(&env, hunt_id, &creator, PoolOperation::SetTimeTiers, None);
 
         Ok(())
     }
@@ -860,8 +913,11 @@ impl RewardManager {
         config.rank_based_tiers = rank_based_tiers;
         Storage::set_pool_config(&env, hunt_id, &config);
 
-        env.events()
-            .publish((symbol_short!("PL_RTIERS"), hunt_id), (creator, tier_count));
+        env.events().publish(
+            (symbol_short!("PL_RTIERS"), hunt_id),
+            (creator.clone(), tier_count),
+        );
+        Self::record_config_change(&env, hunt_id, &creator, PoolOperation::SetRankTiers, None);
 
         Ok(())
     }
@@ -892,8 +948,15 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
-        config.nft_contract = nft_contract;
+        let old_value = config.nft_contract.clone();
+        config.nft_contract = nft_contract.clone();
         Storage::set_pool_config(&env, hunt_id, &config);
+
+        env.events().publish(
+            (symbol_short!("PL_NFT"), hunt_id),
+            (creator.clone(), old_value, nft_contract),
+        );
+        Self::record_config_change(&env, hunt_id, &creator, PoolOperation::SetNftContract, None);
 
         Ok(())
     }
@@ -916,8 +979,13 @@ impl RewardManager {
         }
 
         if !Self::is_delegate(&config, &delegate) {
-            config.delegates.push_back(delegate);
+            config.delegates.push_back(delegate.clone());
             Storage::set_pool_config(&env, hunt_id, &config);
+
+            // Only a real change is recorded; re-adding an existing delegate is a no-op.
+            env.events()
+                .publish((symbol_short!("DLG_ADD"), hunt_id), (creator.clone(), delegate));
+            Self::record_config_change(&env, hunt_id, &creator, PoolOperation::AddDelegate, None);
         }
 
         Ok(())
@@ -947,8 +1015,22 @@ impl RewardManager {
                 updated.push_back(existing);
             }
         }
+        let removed = updated.len() != config.delegates.len();
         config.delegates = updated;
         Storage::set_pool_config(&env, hunt_id, &config);
+
+        // Only a real change is recorded; removing a non-delegate is a no-op.
+        if removed {
+            env.events()
+                .publish((symbol_short!("DLG_REM"), hunt_id), (creator.clone(), delegate));
+            Self::record_config_change(
+                &env,
+                hunt_id,
+                &creator,
+                PoolOperation::RemoveDelegate,
+                None,
+            );
+        }
 
         Ok(())
     }
@@ -960,6 +1042,28 @@ impl RewardManager {
     /// rank- and time-based amounts without duplicating pool state.
     pub fn get_pool_config(env: Env, hunt_id: u64) -> Option<RewardPoolConfig> {
         Storage::get_pool_config(&env, hunt_id)
+    }
+
+    /// Appends a pool-config change to the pool audit log. Shared by every
+    /// creator-only setter so each one leaves the same kind of trail as
+    /// create/fund/freeze/withdraw do.
+    fn record_config_change(
+        env: &Env,
+        hunt_id: u64,
+        actor: &Address,
+        operation: PoolOperation,
+        amount: Option<i128>,
+    ) {
+        Storage::append_audit_entry(
+            env,
+            hunt_id,
+            PoolAuditEntry {
+                actor: actor.clone(),
+                operation,
+                timestamp: env.ledger().timestamp(),
+                amount,
+            },
+        );
     }
 
     /// Records `amount` as a contribution from `funder` toward `hunt_id`'s
@@ -2801,8 +2905,15 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
+        let old_value = config.vesting_period_secs;
         config.vesting_period_secs = vesting_period_secs;
         Storage::set_pool_config(&env, hunt_id, &config);
+
+        env.events().publish(
+            (symbol_short!("PL_VEST"), hunt_id),
+            (creator.clone(), old_value, vesting_period_secs),
+        );
+        Self::record_config_change(&env, hunt_id, &creator, PoolOperation::SetVestingPeriod, None);
 
         Ok(())
     }
