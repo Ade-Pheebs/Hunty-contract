@@ -297,3 +297,36 @@ fn test_team_functions_require_team_mode() {
         .try_create_team(&hunt_id, &player, &String::from_str(&env, "Nope"))
         .is_err());
 }
+
+#[test]
+fn test_first_clue_hint_request_saturates_at_zero() {
+    let env = Env::default();
+    env.ledger().set_timestamp(START_TS);
+    env.mock_all_auths();
+
+    let (client, creator, hunt_id) = setup_hunt(&env, None);
+
+    // Set a hint for clue 1 with a penalty of 5
+    client.set_clue_hint(
+        &hunt_id,
+        &1u32,
+        &creator,
+        &Some(String::from_str(&env, "It's a1")),
+        &5u32,
+    );
+
+    client.activate_hunt(&hunt_id, &creator);
+
+    let player = Address::generate(&env);
+    client.register_player(&hunt_id, &player);
+
+    // Player has 0 score. They can still request the hint.
+    let hint = client.request_hint(&hunt_id, &1u32, &player);
+    assert_eq!(hint, String::from_str(&env, "It's a1"));
+
+    // Player's score should be 0 (saturates instead of going negative)
+    let progress = client.get_player_progress(&hunt_id, &player);
+    assert_eq!(progress.total_score, 0);
+    assert_eq!(progress.hinted_clues.len(), 1);
+}
+
