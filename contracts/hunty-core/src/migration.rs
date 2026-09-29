@@ -161,6 +161,13 @@ impl HuntyCoreMigration {
         ))
     }
 
+    /// Returns true if any data-transforming migration step has run since the
+    /// last rollback point was saved. Rollback is refused in that case because
+    /// down-migrations are not implemented.
+    fn has_data_steps(from_version: u32, to_version: u32) -> bool {
+        to_version > from_version
+    }
+
     /// Restores the schema version saved before the last migration.
     pub fn rollback_migration(
         env: &Env,
@@ -174,6 +181,17 @@ impl HuntyCoreMigration {
         let previous =
             MigrationFramework::rollback_version(env).ok_or(UpgradeAuthError::NoProposal)?;
         let current = MigrationFramework::detect_version(env);
+        if Self::has_data_steps(previous, current) {
+            return Ok(MigrationFramework::build_report(
+                env,
+                current,
+                previous,
+                0,
+                false,
+                false,
+                "rollback refused: data migrations cannot be reverted",
+            ));
+        }
         MigrationFramework::set_version(env, previous);
         MigrationFramework::clear_rollback(env);
         Ok(MigrationFramework::build_report(
