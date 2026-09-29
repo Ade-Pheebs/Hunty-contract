@@ -22,7 +22,8 @@ use crate::types::{
     HuntReactivatedEvent, HuntStatistics, HuntStatus, HuntStatusChangedEvent,
     InviteCodeGeneratedEvent, InviteCodeRevokedEvent, LeaderboardEntry, LeaderboardIndexEntry,
     LeaderboardResult, PlayerProgress, PlayerRegisteredEvent, PlayerRegisteredWithInviteEvent,
-    RewardClaimedEvent, RewardConfig, RewardManagerSetEvent, TimeBonusConfig,
+    RegistrationDeadlineSetEvent, RewardClaimedEvent, RewardConfig, RewardManagerSetEvent,
+    TimeBonusConfig,
 };
 use reward_interface::RewardErrorCode;
 use soroban_sdk::{
@@ -503,6 +504,87 @@ impl HuntyCore {
         }
 
         hunt.max_players = max_players;
+        Storage::save_hunt(&env, &hunt);
+        Ok(())
+    }
+
+    /// Sets the registration cutoff timestamp for a draft hunt. A value of 0 disables the cutoff.
+    /// Only the hunt creator can call this, and only while the hunt is in Draft status.
+    pub fn set_registration_deadline(
+        env: Env,
+        hunt_id: u64,
+        creator: Address,
+        registration_deadline: u64,
+    ) -> Result<(), HuntErrorCode> {
+        creator.require_auth();
+
+        let mut hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
+        if hunt.creator != creator {
+            return Err(HuntErrorCode::Unauthorized);
+        }
+        if hunt.status != HuntStatus::Draft {
+            return Err(HuntErrorCode::InvalidHuntStatus);
+        }
+        if registration_deadline != 0 && registration_deadline < env.ledger().timestamp() {
+            return Err(HuntErrorCode::HuntEndTimeInPast);
+        }
+
+        hunt.registration_deadline = registration_deadline;
+        Storage::save_hunt(&env, &hunt);
+
+        let event = RegistrationDeadlineSetEvent {
+            hunt_id,
+            registration_deadline,
+        };
+        env.events().publish(
+            (Symbol::new(&env, "RegistrationDeadlineSet"), hunt_id),
+            event,
+        );
+        Ok(())
+    }
+
+    /// Enables or disables team features for a draft hunt.
+    /// Only the hunt creator can call this, and only while the hunt is in Draft status.
+    pub fn set_team_mode(
+        env: Env,
+        hunt_id: u64,
+        creator: Address,
+        team_mode: bool,
+    ) -> Result<(), HuntErrorCode> {
+        creator.require_auth();
+
+        let mut hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
+        if hunt.creator != creator {
+            return Err(HuntErrorCode::Unauthorized);
+        }
+        if hunt.status != HuntStatus::Draft {
+            return Err(HuntErrorCode::InvalidHuntStatus);
+        }
+
+        hunt.team_mode = team_mode;
+        Storage::save_hunt(&env, &hunt);
+        Ok(())
+    }
+
+    /// Enables or disables partial-score claims for a draft hunt.
+    /// Only the hunt creator can call this, and only while the hunt is in Draft status.
+    pub fn set_allow_partial_scoring(
+        env: Env,
+        hunt_id: u64,
+        creator: Address,
+        allow_partial_scoring: bool,
+    ) -> Result<(), HuntErrorCode> {
+        creator.require_auth();
+
+        let mut hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
+        if hunt.creator != creator {
+            return Err(HuntErrorCode::Unauthorized);
+        }
+        if hunt.status != HuntStatus::Draft {
+            return Err(HuntErrorCode::InvalidHuntStatus);
+        }
+
+        hunt.allow_partial_scoring = allow_partial_scoring;
         Storage::save_hunt(&env, &hunt);
         Ok(())
     }

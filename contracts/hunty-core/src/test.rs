@@ -5677,6 +5677,127 @@ mod test {
         }
 
         #[test]
+        fn test_hunt_configuration_setters_are_creator_only_and_draft_only() {
+            let env = Env::default();
+            let current_time = 1_700_000_000;
+            env.ledger().set_timestamp(current_time);
+            env.mock_all_auths();
+
+            let creator = Address::generate(&env);
+            let stranger = Address::generate(&env);
+            let question = String::from_str(&env, "Valid question");
+            let answer = String::from_str(&env, "a");
+
+            with_core_contract(&env, |env, _cid| {
+                let hunt_id = HuntyCore::create_hunt(
+                    env.clone(),
+                    creator.clone(),
+                    String::from_str(env, "Configurable Hunt"),
+                    String::from_str(env, "Desc"),
+                    None,
+                    None,
+                    0,
+                    None,
+                    None,
+                )
+                .unwrap();
+                HuntyCore::add_clue(
+                    env.clone(),
+                    hunt_id,
+                    question,
+                    answer,
+                    10,
+                    true,
+                    Some(1),
+                    None,
+                )
+                .unwrap();
+
+                let initial = HuntyCore::get_hunt_info(env.clone(), hunt_id).unwrap();
+                assert_eq!(initial.registration_deadline, 0);
+                assert!(!initial.team_mode);
+                assert!(!initial.allow_partial_scoring);
+
+                HuntyCore::set_registration_deadline(
+                    env.clone(),
+                    hunt_id,
+                    creator.clone(),
+                    current_time + 100,
+                )
+                .unwrap();
+                HuntyCore::set_team_mode(env.clone(), hunt_id, creator.clone(), true).unwrap();
+                HuntyCore::set_allow_partial_scoring(
+                    env.clone(),
+                    hunt_id,
+                    creator.clone(),
+                    true,
+                )
+                .unwrap();
+
+                let configured = HuntyCore::get_hunt_info(env.clone(), hunt_id).unwrap();
+                assert_eq!(configured.registration_deadline, current_time + 100);
+                assert!(configured.team_mode);
+                assert!(configured.allow_partial_scoring);
+
+                assert_eq!(
+                    HuntyCore::set_registration_deadline(
+                        env.clone(),
+                        hunt_id,
+                        stranger.clone(),
+                        current_time + 200,
+                    ),
+                    Err(HuntErrorCode::Unauthorized)
+                );
+                assert_eq!(
+                    HuntyCore::set_team_mode(env.clone(), hunt_id, stranger.clone(), false),
+                    Err(HuntErrorCode::Unauthorized)
+                );
+                assert_eq!(
+                    HuntyCore::set_allow_partial_scoring(
+                        env.clone(),
+                        hunt_id,
+                        stranger,
+                        false,
+                    ),
+                    Err(HuntErrorCode::Unauthorized)
+                );
+                assert_eq!(
+                    HuntyCore::set_registration_deadline(
+                        env.clone(),
+                        hunt_id,
+                        creator.clone(),
+                        current_time - 1,
+                    ),
+                    Err(HuntErrorCode::HuntEndTimeInPast)
+                );
+
+                HuntyCore::activate_hunt(env.clone(), hunt_id, creator.clone()).unwrap();
+                assert_eq!(
+                    HuntyCore::set_registration_deadline(
+                        env.clone(),
+                        hunt_id,
+                        creator.clone(),
+                        current_time + 200,
+                    ),
+                    Err(HuntErrorCode::InvalidHuntStatus)
+                );
+                assert_eq!(
+                    HuntyCore::set_team_mode(env.clone(), hunt_id, creator.clone(), false),
+                    Err(HuntErrorCode::InvalidHuntStatus)
+                );
+                assert_eq!(
+                    HuntyCore::set_allow_partial_scoring(
+                        env.clone(),
+                        hunt_id,
+                        creator,
+                        false,
+                    ),
+                    Err(HuntErrorCode::InvalidHuntStatus)
+                );
+            });
+        }
+
+        #[test]
         fn test_blacklist_creator_blocks_hunt_creation_and_emits_event() {
             let env = Env::default();
             env.ledger().set_timestamp(1_700_000_000);
