@@ -6386,7 +6386,7 @@ mod test {
                 let current_time = env.ledger().timestamp();
                 let existing =
                     crate::types::PlayerProgress::new(env, player.clone(), hunt_id, current_time);
-                Storage::save_player_progress(env, &existing);
+                Storage::save_player_progress(env, &existing, current_time);
 
                 HuntyCore::register_player(env.clone(), hunt_id, player.clone()).unwrap_err()
             });
@@ -8061,7 +8061,8 @@ mod test {
                 let mut progress =
                     Storage::get_player_progress(env, hunt_id, &promoted_player).unwrap();
                 progress.total_score = 999;
-                Storage::save_player_progress(env, &progress);
+                let hunt = Storage::get_hunt(env, hunt_id).unwrap();
+                Storage::save_player_progress(env, &progress, hunt.activated_at);
                 HuntyCore::update_leaderboard_index(env, &progress);
             });
 

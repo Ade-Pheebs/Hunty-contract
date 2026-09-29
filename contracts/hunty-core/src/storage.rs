@@ -891,16 +891,11 @@ impl Storage {
 
     /// * `progress` - The PlayerProgress struct to store
 
-    pub fn save_player_progress(env: &Env, progress: &PlayerProgress) {
+    pub fn save_player_progress(env: &Env, progress: &PlayerProgress, activated_at: u64) {
         // Store the progress with composite key (hunt_id + player address),
-
         // in compact form (key fields player/hunt_id are not duplicated).
 
         let key = Self::progress_key(progress.hunt_id, &progress.player);
-
-        let activated_at = Self::get_hunt(env, progress.hunt_id)
-            .map(|h| h.activated_at)
-            .unwrap_or(0);
 
         env.storage()
             .persistent()
