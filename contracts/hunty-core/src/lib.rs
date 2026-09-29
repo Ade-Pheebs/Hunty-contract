@@ -102,6 +102,8 @@ pub(crate) const MAX_CLUE_DIFFICULTY: u32 = 5;
 pub(crate) const MIN_START_MULTIPLIER_BPS: u32 = 10_000;
 /// Highest supported initial score multiplier. 50_000 basis points is 5x.
 pub(crate) const MAX_START_MULTIPLIER_BPS: u32 = 50_000;
+/// Maximum number of answer hashes (primary + aliases) allowed per clue.
+pub(crate) const MAX_ALIASES_PER_CLUE: u32 = 10;
 
 #[contract]
 pub struct HuntyCore;
@@ -902,6 +904,7 @@ impl HuntyCore {
     /// * `Unauthorized` - Caller is not the hunt creator
     /// * `ClueNotFound` - Clue does not exist
     /// * `InvalidAnswer` - Any answer is empty or exceeds max length
+    /// * `TooManyAliases` - Adding the aliases would exceed `MAX_ALIASES_PER_CLUE`
     pub fn add_clue_aliases(
         env: Env,
         hunt_id: u64,
@@ -917,12 +920,20 @@ impl HuntyCore {
         let mut clue =
             Storage::get_clue_or_error(&env, hunt_id, clue_id).map_err(HuntErrorCode::from)?;
 
+        let mut added: u32 = 0;
         for i in 0..answers.len() {
             // SAFETY: i is within the vector bounds established by the enclosing loop
             let answer = answers.get(i).unwrap();
             let hash = Self::normalize_and_hash_answer(&env, hunt_id, clue_id, &answer)
                 .map_err(HuntErrorCode::from)?;
+            if Self::hash_in_vec(&clue.answer_hashes, &hash) {
+                continue;
+            }
+            if clue.answer_hashes.len() >= MAX_ALIASES_PER_CLUE {
+                return Err(HuntErrorCode::from(HuntError::TooManyAliases));
+            }
             clue.answer_hashes.push_back(hash);
+            added += 1;
         }
 
         Storage::save_clue(&env, hunt_id, &clue);
@@ -931,7 +942,7 @@ impl HuntyCore {
             hunt_id,
             clue_id,
             creator: hunt.creator.clone(),
-            aliases_count: answers.len(),
+            aliases_count: added,
         };
         env.events().publish(
             (Symbol::new(&env, "ClueAliasesAdded"), hunt_id, clue_id),
@@ -1291,6 +1302,17 @@ impl HuntyCore {
         let normalized = Bytes::from_slice(env, &buf[..end]);
         let hash = env.crypto().sha256(&normalized);
         Ok(hash.to_bytes())
+    }
+
+    /// Returns true if `hash` is already present in `hashes`.
+    fn hash_in_vec(hashes: &Vec<BytesN<32>>, hash: &BytesN<32>) -> bool {
+        for i in 0..hashes.len() {
+            // SAFETY: i is within the vector bounds established by the enclosing loop
+            if hashes.get(i).unwrap() == *hash {
+                return true;
+            }
+        }
+        false
     }
 
     #[inline]
