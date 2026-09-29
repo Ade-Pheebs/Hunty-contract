@@ -3186,17 +3186,19 @@ mod index_tier_tests {
 
             let player_marker = Storage::player_exists_key(hunt_id, &player);
 
-            for key in [clue_entry, clue_count, clue_marker] {
+            for key in [clue_entry, clue_marker] {
                 assert!(env.storage().persistent().has(&key));
-
                 assert!(!env.storage().instance().has(&key));
             }
+            assert!(env.storage().persistent().has(&clue_count));
+            assert!(!env.storage().instance().has(&clue_count));
 
-            for key in [player_entry, player_count, player_marker] {
-                assert!(env.storage().persistent().has(&key));
-
-                assert!(!env.storage().instance().has(&key));
-            }
+            assert!(env.storage().persistent().has(&player_entry));
+            assert!(!env.storage().instance().has(&player_entry));
+            assert!(env.storage().persistent().has(&player_marker));
+            assert!(!env.storage().instance().has(&player_marker));
+            assert!(env.storage().persistent().has(&player_count));
+            assert!(!env.storage().instance().has(&player_count));
         });
     }
 
