@@ -319,11 +319,7 @@ impl RewardManager {
         };
         let mut args: Vec<Val> = Vec::new(env);
         args.push_back(hunt_id.into_val(env));
-        let result: Val = env.invoke_contract(
-            &core,
-            &Symbol::new(env, "get_hunt_status"),
-            args,
-        );
+        let result: Val = env.invoke_contract(&core, &Symbol::new(env, "get_hunt_status"), args);
         let status: u32 = result.into_val(env);
         // HuntyCore terminal statuses: Cancelled = 3, Completed = 4.
         status == 3 || status == 4
@@ -1539,8 +1535,7 @@ impl RewardManager {
                 // are never valid.
                 let is_nft_only =
                     config.min_distribution_amount == 0 && config.nft_contract.is_some();
-                let valid_amount =
-                    required_amount > 0 || (required_amount == 0 && is_nft_only);
+                let valid_amount = required_amount > 0 || (required_amount == 0 && is_nft_only);
                 let meets_balance = balance >= required_amount;
                 let meets_minimum = config.min_distribution_amount == 0
                     || required_amount >= config.min_distribution_amount;

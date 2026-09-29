@@ -18,7 +18,13 @@ fn mint_tokens(env: &Env, token_address: &Address, to: &Address, amount: i128) {
 
 fn init_contract(env: &Env, admin: &Address, xlm_token: &Address) -> Address {
     let hunty_core = Address::generate(env);
-    RewardManager::initialize(env.clone(), admin.clone(), xlm_token.clone(), hunty_core.clone()).unwrap();
+    RewardManager::initialize(
+        env.clone(),
+        admin.clone(),
+        xlm_token.clone(),
+        hunty_core.clone(),
+    )
+    .unwrap();
     hunty_core
 }
 
@@ -162,8 +168,15 @@ fn test_invalid_token_contract_rejected() {
     env.as_contract(&contract_id, || {
         init_contract(&env, &admin, &xlm_token);
 
-        let result =
-            RewardManager::create_reward_pool(env.clone(), creator.clone(), 1, invalid_token, 1, 0, true);
+        let result = RewardManager::create_reward_pool(
+            env.clone(),
+            creator.clone(),
+            1,
+            invalid_token,
+            1,
+            0,
+            true,
+        );
 
         assert_eq!(result, Err(RewardErrorCode::InvalidTokenContract));
     });
@@ -470,8 +483,18 @@ fn test_emergency_withdraw_all_pools_multi_token() {
 
         assert_eq!(total_withdrawn, 60_000_000);
 
-        assert_eq!(RewardManager::get_reward_pool(env.clone(), 1).unwrap().balance, 0);
-        assert_eq!(RewardManager::get_reward_pool(env.clone(), 2).unwrap().balance, 0);
+        assert_eq!(
+            RewardManager::get_reward_pool(env.clone(), 1)
+                .unwrap()
+                .balance,
+            0
+        );
+        assert_eq!(
+            RewardManager::get_reward_pool(env.clone(), 2)
+                .unwrap()
+                .balance,
+            0
+        );
     });
 
     let xlm_client = soroban_sdk::token::Client::new(&env, &xlm_token);
@@ -539,8 +562,18 @@ fn test_emergency_withdraw_multiple_pools_same_non_xlm_token() {
 
         assert_eq!(total_withdrawn, 60_000_000);
 
-        assert_eq!(RewardManager::get_reward_pool(env.clone(), 1).unwrap().balance, 0);
-        assert_eq!(RewardManager::get_reward_pool(env.clone(), 2).unwrap().balance, 0);
+        assert_eq!(
+            RewardManager::get_reward_pool(env.clone(), 1)
+                .unwrap()
+                .balance,
+            0
+        );
+        assert_eq!(
+            RewardManager::get_reward_pool(env.clone(), 2)
+                .unwrap()
+                .balance,
+            0
+        );
     });
 
     let usdc_client = soroban_sdk::token::Client::new(&env, &usdc_token);
