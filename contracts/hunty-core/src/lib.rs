@@ -1521,6 +1521,13 @@ impl HuntyCore {
                 return Err(HuntErrorCode::NoRequiredClues);
             }
 
+            // A private hunt with no invite code can never be joined:
+            // register_player rejects private hunts and register_with_invite
+            // requires a code. Reject activation instead of leaving a dead hunt.
+            if hunt.is_private && hunt.invite_code_hash.is_none() {
+                return Err(HuntErrorCode::InviteCodeRequired);
+            }
+
             debug_assert_eq!(cache.max_winners, hunt.reward_config.max_winners);
 
             let reward_manager = Storage::get_reward_manager(&env);
