@@ -146,6 +146,11 @@ pub struct RewardPoolConfig {
     /// Optional exact-rank reward tiers. A matching frozen completion rank
     /// takes precedence over flat and time-based amounts.
     pub rank_based_tiers: Vec<RankRewardTier>,
+    /// Address that most recently froze this pool, or `None` when the pool is
+    /// not frozen. Tracks whether the current freeze was issued by the pool
+    /// creator or the contract admin so that an admin-issued freeze can only be
+    /// lifted by the admin (#1077).
+    pub frozen_by: Option<Address>,
 }
 
 /// Full status of a reward pool, returned by get_reward_pool().
@@ -164,6 +169,9 @@ pub struct RewardPoolStatus {
     pub min_distribution_amount: i128,
     /// Whether distributions from this pool are temporarily frozen.
     pub frozen: bool,
+    /// Address that most recently froze this pool, or `None` when not frozen.
+    /// See `RewardPoolConfig::frozen_by` (#1077).
+    pub frozen_by: Option<Address>,
 }
 
 /// Pending NFT mint that failed and can be retried by the admin.
@@ -218,6 +226,26 @@ pub enum PoolOperation {
     Migrate = 6,
     /// Unused balance was refunded to the pool creator.
     Refund = 7,
+    /// `update_pool_config` changed `min_distribution_amount` (`amount` = new value).
+    UpdateMinAmount = 8,
+    /// `set_pool_target_amount` changed the funding target (`amount` = new value).
+    SetTargetAmount = 9,
+    /// `set_min_distribution_interval` changed the distribution cooldown.
+    SetDistributionInterval = 10,
+    /// `set_distribution_mode` switched between Fixed and Proportional.
+    SetDistributionMode = 11,
+    /// `set_pool_nft_contract` set or cleared the pool's NFT contract.
+    SetNftContract = 12,
+    /// `add_delegate` authorised a new distribution delegate.
+    AddDelegate = 13,
+    /// `remove_delegate` revoked a distribution delegate.
+    RemoveDelegate = 14,
+    /// `set_vesting_period_secs` changed the vesting period.
+    SetVestingPeriod = 15,
+    /// `set_pool_tiers` replaced the time-based tier schedule.
+    SetTimeTiers = 16,
+    /// `set_pool_rank_tiers` replaced the rank-based tier schedule.
+    SetRankTiers = 17,
 }
 
 /// Comprehensive statistics for a reward pool, returned by get_pool_statistics().
