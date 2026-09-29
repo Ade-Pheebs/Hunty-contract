@@ -18,11 +18,12 @@ impl HuntyCoreMigration {
         MigrationFramework::detect_version(env)
     }
 
-    pub fn initialize_schema(env: &Env, admin: &Address) {
+    pub fn initialize_schema(env: &Env) {
         MigrationFramework::init_version_on_deploy(env);
-        if UpgradeAuthorization::get_upgrade_admin(env).is_none() {
-            UpgradeAuthorization::set_upgrade_admin(env, admin);
-        }
+    }
+
+    fn configured_admin(env: &Env) -> Option<Address> {
+        Storage::get_admin(env)
     }
 
     pub fn propose_upgrade(
@@ -33,7 +34,7 @@ impl HuntyCoreMigration {
         UpgradeAuthorization::require_admin(
             env,
             admin,
-            UpgradeAuthorization::get_upgrade_admin(env),
+            Self::configured_admin(env),
         )?;
         let now = env.ledger().timestamp();
         let proposal = UpgradeAuthorization::propose_upgrade(env, admin, target_version, now);
@@ -48,7 +49,7 @@ impl HuntyCoreMigration {
         UpgradeAuthorization::require_admin(
             env,
             admin,
-            UpgradeAuthorization::get_upgrade_admin(env),
+            Self::configured_admin(env),
         )?;
         UpgradeAuthorization::set_timelock_seconds(env, delay_seconds);
         Ok(())
@@ -81,7 +82,7 @@ impl HuntyCoreMigration {
         UpgradeAuthorization::prepare_migration_run(
             env,
             admin,
-            UpgradeAuthorization::get_upgrade_admin(env),
+            Self::configured_admin(env),
             target_version,
             dry_run,
             now,
@@ -182,7 +183,7 @@ impl HuntyCoreMigration {
         UpgradeAuthorization::require_admin(
             env,
             admin,
-            UpgradeAuthorization::get_upgrade_admin(env),
+            Self::configured_admin(env),
         )?;
         let previous =
             MigrationFramework::rollback_version(env).ok_or(UpgradeAuthError::NoProposal)?;

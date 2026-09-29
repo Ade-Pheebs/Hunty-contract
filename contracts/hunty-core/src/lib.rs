@@ -3849,9 +3849,8 @@ impl HuntyCore {
         migration::HuntyCoreMigration::get_schema_version(&env)
     }
 
-    pub fn initialize_schema(env: Env, admin: Address) {
-        admin.require_auth();
-        migration::HuntyCoreMigration::initialize_schema(&env, &admin);
+    pub fn initialize_schema(env: Env) {
+        migration::HuntyCoreMigration::initialize_schema(&env);
     }
 
     pub fn run_migration(
