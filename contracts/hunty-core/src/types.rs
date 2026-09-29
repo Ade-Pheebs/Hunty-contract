@@ -175,12 +175,14 @@ pub struct HuntCancelledEvent {
 /// Emitted when a creator force-closes a hunt early (marks it Completed) while
 /// preserving player scores and any already-distributed rewards. `rewarded_players`
 /// is the number of completed players who received a final reward as part of closing.
+/// `unpaid_players` lists eligible players whose final reward distribution failed.
 #[contracttype]
 #[derive(Clone)]
 pub struct HuntClosedEvent {
     pub hunt_id: u64,
     pub closed_at: u64,
     pub rewarded_players: u32,
+    pub unpaid_players: Vec<Address>,
 }
 
 #[contracttype]

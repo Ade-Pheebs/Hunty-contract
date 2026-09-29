@@ -5267,6 +5267,87 @@ mod test {
             assert_eq!(status_event.new_status, HuntStatus::Completed);
         }
 
+        #[test]
+        fn test_close_hunt_continues_after_distribution_interval_failure() {
+            let env = Env::default();
+            env.ledger().set_timestamp(1_700_000_000);
+            let creator = Address::generate(&env);
+            let first_player = Address::generate(&env);
+            let second_player = Address::generate(&env);
+            let funder = Address::generate(&env);
+
+            let (hunt_id, contract_id) =
+                setup_completed_hunt_with_rewards(&env, &creator, &first_player, 2, 1_000);
+            env.mock_all_auths();
+            as_core_contract(&env, &contract_id, |env| {
+                HuntyCore::register_player(env.clone(), hunt_id, second_player.clone()).unwrap();
+                HuntyCore::submit_answer(
+                    env.clone(),
+                    hunt_id,
+                    1,
+                    second_player.clone(),
+                    SorobanString::from_str(env, "2"),
+                    30,
+                    env.ledger().timestamp(),
+                )
+                .unwrap();
+            });
+
+            let (reward_manager_id, token_address, _) = setup_reward_manager(&env, None);
+            token::StellarAssetClient::new(&env, &token_address).mint(&funder, &1_000);
+            env.mock_all_auths();
+            env.as_contract(&reward_manager_id, || {
+                RewardManager::create_reward_pool(
+                    env.clone(),
+                    funder.clone(),
+                    hunt_id,
+                    token_address.clone(),
+                    0,
+                )
+                .unwrap();
+                RewardManager::fund_reward_pool(env.clone(), funder.clone(), hunt_id, 1_000)
+                    .unwrap();
+                RewardManager::set_min_distribution_interval(
+                    env.clone(),
+                    funder.clone(),
+                    hunt_id,
+                    60,
+                )
+                .unwrap();
+            });
+
+            env.mock_all_auths();
+            as_core_contract(&env, &contract_id, |env| {
+                HuntyCore::set_reward_manager(
+                    env.clone(),
+                    creator.clone(),
+                    reward_manager_id.clone(),
+                );
+                HuntyCore::close_hunt(env.clone(), hunt_id, creator.clone()).unwrap();
+            });
+
+            let hunt = as_core_contract(&env, &contract_id, |env| {
+                HuntyCore::get_hunt_info(env.clone(), hunt_id).unwrap()
+            });
+            assert_eq!(hunt.status, HuntStatus::Completed);
+            assert_eq!(hunt.reward_config.claimed_count, 1);
+
+            let first_progress = as_core_contract(&env, &contract_id, |env| {
+                HuntyCore::get_player_progress(env.clone(), hunt_id, first_player.clone()).unwrap()
+            });
+            let second_progress = as_core_contract(&env, &contract_id, |env| {
+                HuntyCore::get_player_progress(env.clone(), hunt_id, second_player.clone()).unwrap()
+            });
+            assert!(first_progress.reward_claimed);
+            assert!(!second_progress.reward_claimed);
+
+            let (_topics, closed) = as_core_contract(&env, &contract_id, |env| {
+                find_event::<HuntClosedEvent>(env, "HuntClosed").expect("expected HuntClosed event")
+            });
+            assert_eq!(closed.rewarded_players, 1);
+            assert_eq!(closed.unpaid_players, Vec::from_array(&env, [second_player]));
+        }
+
         /// A player who has not completed the hunt keeps their progress and is not
         /// rewarded when the hunt is closed.
         #[test]

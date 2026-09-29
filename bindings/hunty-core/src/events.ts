@@ -47,11 +47,13 @@ export interface HuntClonedEvent {
  * Emitted when a creator force-closes a hunt early (marks it Completed) while
  * preserving player scores and any already-distributed rewards. `rewarded_players`
  * is the number of completed players who received a final reward as part of closing.
+ * `unpaid_players` lists eligible players whose final reward distribution failed.
  */
 export interface HuntClosedEvent {
   closed_at: u64;
   hunt_id: u64;
   rewarded_players: u32;
+  unpaid_players: string[];
 }
 
 
