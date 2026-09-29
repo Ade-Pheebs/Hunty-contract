@@ -1,3 +1,4 @@
+
 use crate::HuntyCore;
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, Env, String};
@@ -11855,6 +11856,64 @@ mod test {
     }
 
     // ========== Issues #831, #832, #833, #834 Maintenance Tests ==========
+
+    #[test]
+    fn test_activate_private_hunt_without_invite_code_is_rejected() {
+        let env = Env::default();
+        env.ledger().set_timestamp(1_700_000_000);
+        let creator = Address::generate(&env);
+        let contract_id = env.register(HuntyCore, ());
+
+        env.mock_all_auths();
+        let hunt_id = as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::create_hunt(
+                env.clone(),
+                creator.clone(),
+                String::from_str(env, "Private Hunt"),
+                String::from_str(env, "Private hunt without invite code"),
+                None,
+                None,
+                0,
+                None,
+                None,
+            )
+            .unwrap()
+        });
+
+        env.mock_all_auths();
+        as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::add_clue(
+                env.clone(),
+                hunt_id,
+                String::from_str(env, "Question?"),
+                String::from_str(env, "answer"),
+                10,
+                true,
+                None,
+                None,
+            )
+            .unwrap();
+            HuntyCore::set_hunt_privacy(
+                env.clone(),
+                hunt_id,
+                creator.clone(),
+                true,
+                None,
+            )
+            .unwrap();
+        });
+
+        env.mock_all_auths();
+        let result = as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::activate_hunt(env.clone(), hunt_id, creator.clone())
+        });
+        assert_eq!(result, Err(HuntErrorCode::InvalidHuntStatus));
+
+        let hunt = as_core_contract(&env, &contract_id, |env| {
+            Storage::get_hunt(env, hunt_id).unwrap()
+        });
+        assert_eq!(hunt.status, HuntStatus::Draft);
+    }
 
     #[test]
     fn test_issue_831_activate_hunt_reward_manager_single_read_and_no_rewards_configured() {
