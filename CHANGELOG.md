@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `reward-manager`: `freeze_pool` now records who froze a pool (`RewardPoolConfig::frozen_by`, also exposed on `get_reward_pool`), and `unfreeze_pool` only lets the admin lift an admin-issued freeze. A creator can no longer undo an incident freeze, and a creator freeze call cannot downgrade an existing admin freeze (#1077).
 - `reward-manager`: every pool configuration setter (`update_pool_config`, `set_pool_target_amount`, `set_min_distribution_interval`, `set_distribution_mode`, `set_pool_nft_contract`, `add_delegate`, `remove_delegate`, `set_vesting_period_secs`, and the existing tier setters) now appends a `PoolAuditEntry`, and each setter that was silent now emits an event (`PL_MINAMT`, `PL_TARGET`, `PL_INTVL`, `PL_MODE`, `PL_NFT`, `DLG_ADD`, `DLG_REM`, `PL_VEST`) carrying the creator plus old and new values. Ten new `PoolOperation` variants (8-17) were added append-only; `add_delegate` / `remove_delegate` record nothing when they change nothing (#1079).
 - `reward-manager`: `validate_pool` no longer rejects NFT-only pools: `required_amount == 0` is now valid for pools with an NFT contract and no minimum distribution amount, which hold no token balance by design (#1088). Negative amounts are still rejected for every pool type.
 - `nft-reward`: `mint_reward_nft` (typed entrypoint) now mints soulbound (non-transferable) NFTs by default, matching `mint_reward_nft_from_map`; use the map path's explicit `"transferable"` key for transferable rewards (#1095).

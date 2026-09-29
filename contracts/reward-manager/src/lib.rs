@@ -595,6 +595,7 @@ impl RewardManager {
             nft_royalty_bps,
             nft_transferable,
             rank_based_tiers: Vec::new(&env),
+            frozen_by: None,
         };
         Storage::set_pool_config(&env, hunt_id, &config);
 
@@ -1574,6 +1575,7 @@ impl RewardManager {
             creator: config.creator,
             min_distribution_amount: config.min_distribution_amount,
             frozen: config.frozen,
+            frozen_by: config.frozen_by,
         })
     }
 
@@ -1664,6 +1666,9 @@ impl RewardManager {
     /// Freezes a reward pool, preventing any further distributions.
     ///
     /// Can be called by either the pool creator or the contract admin.
+    /// Records who issued the freeze in `RewardPoolConfig::frozen_by`; an
+    /// admin-issued freeze can only be lifted by the admin (see
+    /// `unfreeze_pool`, #1077).
     /// Emits a `PoolFrozenEvent`.
     ///
     /// # Arguments
@@ -1687,6 +1692,13 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
+        // Record who issued the freeze. An admin freeze is never downgraded by
+        // a later creator call (which would let the creator lift it again),
+        // while an admin call always (re)asserts an admin freeze over an
+        // existing creator freeze.
+        if is_admin || !config.frozen {
+            config.frozen_by = Some(caller.clone());
+        }
         config.frozen = true;
         Storage::set_pool_config(&env, hunt_id, &config);
 
@@ -1711,7 +1723,11 @@ impl RewardManager {
 
     /// Unfreezes a reward pool, re-enabling distributions.
     ///
-    /// Can be called by either the pool creator or the contract admin.
+    /// Can be called by either the pool creator or the contract admin, except
+    /// that a freeze issued by the admin may only be lifted by the admin
+    /// (#1077). Any freezer other than the pool creator was the admin at the
+    /// time of the freeze, so this restriction also survives an admin rotation.
+    /// Clears `RewardPoolConfig::frozen_by`.
     /// Emits a `PoolUnfrozenEvent`.
     ///
     /// # Arguments
@@ -1720,7 +1736,9 @@ impl RewardManager {
     ///
     /// # Errors
     /// * `PoolNotFound` - No pool exists for this hunt_id
-    /// * `Unauthorized` - Caller is neither the pool creator nor the contract admin
+    /// * `Unauthorized` - Caller is neither the pool creator nor the contract
+    ///   admin, or the current freeze was issued by the admin and the caller is
+    ///   not the admin
     pub fn unfreeze_pool(env: Env, caller: Address, hunt_id: u64) -> Result<(), RewardErrorCode> {
         caller.require_auth();
 
@@ -1735,7 +1753,21 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
+        // A freeze applied under admin authority may only be lifted by the
+        // admin. The creator cannot record an admin freeze, so "frozen by
+        // anyone other than the creator" means "frozen by the admin" — even if
+        // the admin address has since rotated.
+        let admin_freeze = config
+            .frozen_by
+            .as_ref()
+            .map(|freezer| freezer != &config.creator)
+            .unwrap_or(false);
+        if admin_freeze && !is_admin {
+            return Err(RewardErrorCode::Unauthorized);
+        }
+
         config.frozen = false;
+        config.frozen_by = None;
         Storage::set_pool_config(&env, hunt_id, &config);
 
         env.events().publish(

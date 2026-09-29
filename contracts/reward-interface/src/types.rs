@@ -73,6 +73,11 @@ pub struct RewardPoolConfig {
     /// Optional exact-rank reward tiers. A matching frozen completion rank
     /// takes precedence over flat and time-based amounts.
     pub rank_based_tiers: Vec<RankRewardTier>,
+    /// Address that most recently froze this pool, or `None` when the pool is
+    /// not frozen. Tracks whether the current freeze was issued by the pool
+    /// creator or the contract admin so that an admin-issued freeze can only be
+    /// lifted by the admin (#1077).
+    pub frozen_by: Option<Address>,
 }
 
 /// How rewards are calculated from the pool at distribution time.

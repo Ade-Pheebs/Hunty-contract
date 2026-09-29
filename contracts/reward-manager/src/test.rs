@@ -182,6 +182,7 @@ mod test {
             claim_deadline: 0,
             nft_royalty_bps: 0,
             nft_transferable: true,
+            frozen_by: None,
         };
         Storage::set_pool_config(env, hunt_id, &config);
         config
@@ -1512,6 +1513,7 @@ mod test {
                     claim_deadline: 0,
                     nft_royalty_bps: 0,
                     nft_transferable: true,
+                    frozen_by: None,
                 },
             );
             // funder == creator here, but the auth now required is the
