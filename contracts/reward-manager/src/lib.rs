@@ -350,8 +350,24 @@ impl RewardManager {
     /// Minimum NftReward version this contract requires.
     pub const REQUIRED_NFT_REWARD_VERSION: u32 = 2;
 
+    /// Constructor - runs atomically during deployment.
+    /// Prevents front-running by initializing during deploy transaction.
+    #[allow(unused_variables)]
+    pub fn __constructor(
+        env: Env,
+        admin: Address,
+        xlm_token: Address,
+        hunty_core: Address,
+    ) {
+        Storage::set_admin(&env, &admin);
+        Storage::set_xlm_token(&env, &xlm_token);
+        Storage::set_hunty_core(&env, &hunty_core);
+        Storage::set_contract_version(&env, Self::CONTRACT_VERSION);
+    }
+
     /// Initializes the RewardManager with the XLM token contract address (SAC).
     /// Must be called once before any reward distribution.
+    /// @deprecated Use constructor during deployment instead.
     pub fn initialize(
         env: Env,
         admin: Address,

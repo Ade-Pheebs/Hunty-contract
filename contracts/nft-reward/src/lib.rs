@@ -83,6 +83,32 @@ pub struct NftReward;
 
 #[contractimpl]
 impl NftReward {
+    /// Constructor - runs atomically during deployment.
+    /// Prevents front-running by initializing during deploy transaction.
+    #[allow(unused_variables)]
+    pub fn __constructor(
+        env: Env,
+        admin: Address,
+        minter: Address,
+        max_supply: Option<u64>,
+        metadata: CollectionMetadata,
+    ) {
+        // Store admin
+        env.storage().instance().set(&symbol_short!("ADMIN"), &admin);
+        // Store minter
+        env.storage().instance().set(&symbol_short!("MINTER"), &minter);
+        // Store max supply if provided
+        if let Some(max) = max_supply {
+            env.storage().instance().set(&symbol_short!("MAXSPLY"), &max);
+        }
+        // Store collection metadata
+        env.storage().instance().set(&symbol_short!("COLMETA"), &metadata);
+        // Initialize total supply to 0
+        env.storage().instance().set(&symbol_short!("TOTSPLY"), &0u64);
+        // Initialize NFT counter to 0
+        env.storage().instance().set(&symbol_short!("NFTCNT"), &0u64);
+    }
+
     pub fn initialize(
         _env: Env,
         _admin: Address,
@@ -90,11 +116,13 @@ impl NftReward {
         _max_supply: Option<u64>,
         _metadata: CollectionMetadata,
     ) -> Result<(), NftErrorCode> {
-        Ok(())
+        // @deprecated Use constructor during deployment instead.
+        // This function is kept for backward compatibility but should not be used.
+        Err(NftErrorCode::AlreadyInitialized)
     }
 
     pub fn initialize_admin(_env: Env, _admin: Address) -> Result<(), NftErrorCode> {
-        Ok(())
+        Err(NftErrorCode::AlreadyInitialized)
     }
 
     pub fn set_reward_manager(
