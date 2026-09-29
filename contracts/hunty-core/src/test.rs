@@ -30,8 +30,9 @@ mod test {
     use crate::types::{
         BatchClueInput, ClueAddedEvent, ClueInfo, CreatorBlacklistedEvent,
         CreatorRemovedFromBlacklistEvent, HuntCancelledEvent, HuntClosedEvent, HuntCompletedEvent,
-        HuntCreatedEvent, HuntStatus, HuntStatusChangedEvent, LeaderboardResult, PlayerProgress,
-        PlayerRegisteredEvent, RewardClaimFailedEvent, TimeBonusConfig,
+        HuntCreatedEvent, HuntPrivacyChangedEvent, HuntStatus, HuntStatusChangedEvent,
+        LeaderboardResult, PlayerProgress, PlayerRegisteredEvent, RewardClaimFailedEvent,
+        TimeBonusConfig,
     };
 
     /// Mirrors the private production constant used for submission timestamp validation.
