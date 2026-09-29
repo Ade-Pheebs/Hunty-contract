@@ -3137,16 +3137,10 @@ impl HuntyCore {
     /// Sorted by score descending, then by completion time ascending (earlier = better).
     /// Limit is capped at 20 to control gas. Returns error if hunt does not exist.
     ///
-    /// Access is governed by the hunt's `leaderboard_visibility` setting:
-    /// * `Public` – any caller (pass `None` for anonymous access).
-    /// * `RegisteredOnly` – caller must be a registered player for the hunt.
-    /// * `CreatorOnly` – caller must be the hunt creator.
-    ///
     /// # Arguments
     /// * `env` - The Soroban environment
     /// * `hunt_id` - The hunt to query
     /// * `limit` - Maximum entries to return (capped at `MAX_LEADERBOARD_SIZE`)
-    /// * `caller` - Optional address of the requester; required for non-Public visibility
     pub fn get_hunt_leaderboard(
         env: Env,
         hunt_id: u64,
@@ -3183,7 +3177,8 @@ impl HuntyCore {
     /// their compact rows. This method enables clients to page through all
     /// registered players in multiple calls (bounded by `MAX_LEADERBOARD_SCAN_SIZE`)
     /// and merge results off-chain to build a full leaderboard without a single
-    /// large on-chain scan.
+    /// large on-chain scan. This read path is public; the `_caller` argument is
+    /// accepted for forward compatibility and is currently ignored.
     pub fn get_hunt_leaderboard_window(
         env: Env,
         hunt_id: u64,
@@ -3193,8 +3188,6 @@ impl HuntyCore {
     ) -> Result<crate::types::LeaderboardWindow, HuntErrorCode> {
         Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
 
-        // The visibility field is not part of the persisted Hunt wire format yet;
-        // keep this read path public until it is introduced with a migration.
         let queried_at = env.ledger().timestamp();
         let players = Storage::get_hunt_players(&env, hunt_id);
         let total_players = players.len();
