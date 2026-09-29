@@ -3526,13 +3526,20 @@ impl RewardManager {
         }
         let xlm_token = Storage::get_xlm_token(&env).ok_or(RewardErrorCode::NotInitialized)?;
         let contract_addr = env.current_contract_address();
-        let client = soroban_sdk::token::Client::new(&env, &xlm_token);
         let mut total_withdrawn: i128 = 0;
+
+        let get_pool_token = |pid: u64| -> Address {
+            Storage::get_pool_config(&env, pid)
+                .map(|config| config.token_address)
+                .unwrap_or_else(|| xlm_token.clone())
+        };
 
         if hunt_id > 0 {
             // Single pool emergency withdrawal
             let balance = Storage::get_pool_balance(&env, hunt_id);
             if balance > 0 {
+                let token_address = get_pool_token(hunt_id);
+                let client = soroban_sdk::token::Client::new(&env, &token_address);
                 client.transfer(&contract_addr, &recipient, &balance);
                 Storage::set_pool_balance(&env, hunt_id, 0);
                 total_withdrawn = balance;
@@ -3570,6 +3577,8 @@ impl RewardManager {
             for pid in 1..=max_hunt_id {
                 let balance = Storage::get_pool_balance(&env, pid);
                 if balance > 0 {
+                    let token_address = get_pool_token(pid);
+                    let client = soroban_sdk::token::Client::new(&env, &token_address);
                     client.transfer(&contract_addr, &recipient, &balance);
                     Storage::set_pool_balance(&env, pid, 0);
                     total_withdrawn += balance;
