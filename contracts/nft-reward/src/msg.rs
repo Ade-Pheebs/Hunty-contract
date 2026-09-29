@@ -1,7 +1,5 @@
-// src/msg.rs
-use schemars::JsonSchema;
+use schemas::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 // ... existing imports ...
 
