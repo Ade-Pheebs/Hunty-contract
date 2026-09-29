@@ -1611,8 +1611,7 @@ impl HuntyCore {
     /// * `Unauthorized` - Caller is not the hunt creator
     /// * `InvalidHuntStatus` - Hunt is not in an early-closable status
     /// * `RewardsPaused` - Reward distribution is globally paused
-    /// * `InvalidRarity` - The hunt's configured NFT rarity is out of range
-    /// * `RewardDistributionFailed` - A RewardManager cross-contract call failed
+    /// Per-player reward failures are recorded in `HuntClosedEvent.unpaid_players`.
     pub fn close_hunt(env: Env, hunt_id: u64, caller: Address) -> Result<(), HuntErrorCode> {
         caller.require_auth();
 
@@ -1642,6 +1641,7 @@ impl HuntyCore {
         // skipped rather than consuming winner slots.
         let players = Storage::get_hunt_players(&env, hunt_id);
         let mut rewarded_players = 0u32;
+        let mut unpaid_players: Vec<Address> = Vec::new(&env);
         for i in 0..players.len() {
             if hunt.reward_config.claimed_count >= hunt.reward_config.max_winners {
                 break;
@@ -1654,8 +1654,10 @@ impl HuntyCore {
                 && progress.completion_rank > 0
                 && progress.completion_rank <= hunt.reward_config.max_winners
             {
-                Self::distribute_player_reward(&env, &mut hunt, &mut progress)?;
-                rewarded_players = rewarded_players.saturating_add(1);
+                match Self::distribute_player_reward(&env, &mut hunt, &mut progress) {
+                    Ok(()) => rewarded_players = rewarded_players.saturating_add(1),
+                    Err(_) => unpaid_players.push_back(progress.player.clone()),
+                }
             }
         }
 
@@ -1670,6 +1672,7 @@ impl HuntyCore {
             hunt_id,
             closed_at,
             rewarded_players,
+            unpaid_players,
         };
         env.events()
             .publish((Symbol::new(&env, "HuntClosed"), hunt_id), event);
