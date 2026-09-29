@@ -96,7 +96,6 @@ impl RateLimiter {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn get_status(env: &Env, creator: &Address, now: u64) -> RateLimitStatus {
         let day = now / SECONDS_PER_DAY;
         let limit = Storage::get_effective_hunt_creation_limit(env, creator);
@@ -117,7 +116,6 @@ impl RateLimiter {
         }
     }
 
-    #[allow(dead_code)]
     pub fn require_rate_limit_admin(env: &Env, admin: &Address) -> Result<(), HuntErrorCode> {
         admin.require_auth();
         let stored = Storage::get_rate_limit_admin(env).ok_or(HuntErrorCode::Unauthorized)?;

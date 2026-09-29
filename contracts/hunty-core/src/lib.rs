@@ -3956,6 +3956,71 @@ impl HuntyCore {
         hunty_common::monitoring::Monitoring::health_dashboard(&env)
     }
 
+    // -----------------------------------------------------------------------------
+    // Rate-limit administration (fixes #1056: previously dead-code)
+    // -----------------------------------------------------------------------------
+
+    /// Bootstrap or transfer the rate-limit admin role.
+    ///
+    /// The first call sets the admin with no prior-admin check. Subsequent
+    /// calls require `caller` to already be the stored admin.
+    pub fn set_rate_limit_admin(
+        env: Env,
+        caller: Address,
+        new_admin: Address,
+    ) -> Result<(), HuntErrorCode> {
+        caller.require_auth();
+        if let Some(current) = Storage::get_rate_limit_admin(&env) {
+            if current != caller {
+                return Err(HuntErrorCode::Unauthorized);
+            }
+        }
+        Storage::set_rate_limit_admin(&env, &new_admin);
+        Ok(())
+    }
+
+    /// Admin-only: override the daily hunt-creation limit for a specific creator.
+    ///
+    /// Pass `limit = 0` to remove an existing override, falling back to the
+    /// contract-wide default.
+    pub fn set_creator_hunt_limit(
+        env: Env,
+        caller: Address,
+        creator: Address,
+        limit: u32,
+    ) -> Result<(), HuntErrorCode> {
+        rate_limit::RateLimiter::require_rate_limit_admin(&env, &caller)?;
+        Storage::set_creator_limit_override(&env, &creator, limit);
+        Ok(())
+    }
+
+    /// Admin-only: update the contract-wide default daily hunt-creation limit.
+    ///
+    /// This is the fallback used for any creator that has no per-creator
+    /// override. The initial value is [`rate_limit::DEFAULT_HUNT_CREATION_LIMIT`].
+    pub fn set_default_hunt_creation_limit(
+        env: Env,
+        caller: Address,
+        limit: u32,
+    ) -> Result<(), HuntErrorCode> {
+        rate_limit::RateLimiter::require_rate_limit_admin(&env, &caller)?;
+        Storage::set_default_hunt_creation_limit(&env, limit);
+        Ok(())
+    }
+
+    /// Query the current quota status for a creator.
+    ///
+    /// Returns how many hunts the creator has created today, their effective
+    /// daily limit, and the cooldown seconds until the next day begins (0 when
+    /// the limit has not been reached).
+    pub fn get_creator_rate_limit_status(
+        env: Env,
+        creator: Address,
+    ) -> crate::types::RateLimitStatus {
+        let now = env.ledger().timestamp();
+        rate_limit::RateLimiter::get_status(&env, &creator, now)
+    }
+
     #[cfg(debug_assertions)]
     #[allow(dead_code)]
     fn sync_hunt_clue_counts(env: &Env, hunt_id: u64, hunt: &Hunt) {
