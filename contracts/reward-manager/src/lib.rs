@@ -3619,13 +3619,17 @@ impl RewardManager {
     }
 
     /// Returns true if the given NftReward contract meets the minimum required version.
+    /// Returns false on any error (e.g. the address is not an nft-reward contract
+    /// or an old one without `contract_version`) instead of trapping.
     pub fn check_nft_reward_compatibility(env: Env, nft_reward_address: Address) -> bool {
-        let ver: u32 = env.invoke_contract(
-            &nft_reward_address,
-            &soroban_sdk::Symbol::new(&env, "contract_version"),
-            soroban_sdk::Vec::new(&env),
-        );
-        ver >= Self::REQUIRED_NFT_REWARD_VERSION
+        matches!(
+            env.try_invoke_contract::<u32, Val>(
+                &nft_reward_address,
+                &soroban_sdk::Symbol::new(&env, "contract_version"),
+                soroban_sdk::Vec::new(&env),
+            ),
+            Ok(Ok(ver)) if ver >= Self::REQUIRED_NFT_REWARD_VERSION
+        )
     }
 
     pub fn get_schema_version(env: Env) -> u32 {
