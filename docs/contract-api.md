@@ -4129,7 +4129,9 @@ Scans a bounded window of registered players for a hunt and returns
 their compact rows. This method enables clients to page through all
 registered players in multiple calls (bounded by `MAX_LEADERBOARD_SCAN_SIZE`)
 and merge results off-chain to build a full leaderboard without a single
-large on-chain scan. This read path is public; the `_caller` argument is
+large on-chain scan. Only the requested registration slice is read, so
+the cost of a page depends on `window_size`, not on how many players the
+hunt has. This read path is public; the `_caller` argument is
 accepted for forward compatibility and is currently ignored.
 
 **Signature:**
@@ -5551,6 +5553,267 @@ pub fn get_health_dashboard(env: Env) -> hunty_common::monitoring::ContractHealt
 - `env: Env`
 
 **Returns:** `hunty_common::monitoring::ContractHealth`
+
+---
+
+#### `set_rate_limit_admin`
+
+Bootstrap or transfer the rate-limit admin role.
+
+The first call sets the admin with no prior-admin check. Subsequent
+calls require `caller` to already be the stored admin.
+
+**Signature:**
+
+```rust
+pub fn set_rate_limit_admin(env: Env, caller: Address, new_admin: Address) -> Result<(), HuntErrorCode>
+```
+
+**Parameters:**
+
+- `env: Env`
+- `caller: Address`
+- `new_admin: Address`
+
+**Returns:** `Result<(), HuntErrorCode>`
+
+**Error type:** `HuntErrorCode`
+
+**Error codes:**
+
+- `HuntNotFound` = 1
+- `ClueNotFound` = 2
+- `InvalidHuntStatus` = 3
+- `PlayerNotRegistered` = 4
+- `ClueAlreadyCompleted` = 5
+- `InvalidAnswer` = 6
+- `HuntNotActive` = 7
+- `Unauthorized` = 8
+- `InsufficientRewardPool` = 9
+- `DuplicateRegistration` = 10
+- `InvalidTitle` = 11
+- `InvalidDescription` = 12
+- `InvalidAddress` = 13
+- `TooManyClues` = 14
+- `InvalidQuestion` = 15
+- `RefundFailed` = 16
+- `NoCluesAdded` = 17
+- `HuntNotCompleted` = 18
+- `RewardAlreadyClaimed` = 19
+- `RewardDistributionFailed` = 20
+- `NoRewardsConfigured` = 21
+- `DuplicateSubmission` = 22
+- `SubmissionExpired` = 23
+- `BannedPlayer` = 24
+- `NoRequiredClues` = 25
+- `RateLimitExceeded` = 26
+- `ScoreOverflow` = 27
+- `RegistrationsPaused` = 28
+- `AnswersPaused` = 29
+- `RewardsPaused` = 30
+- `HuntEndTimeInPast` = 31
+- `NoPendingAdmin` = 32
+- `PendingAdminMismatch` = 33
+- `InvalidRarity` = 34
+- `InvalidTimeBonusConfig` = 35
+- `AddressBlacklisted` = 36
+- `ContractPaused` = 37
+- `InvalidMaxAttempts` = 38
+- `InvalidWeight` = 39
+- `HintNotAvailable` = 40
+- `HintAlreadyUnlocked` = 41
+- `InsufficientScore` = 42
+- `TooManyCategories` = 43
+- `InvalidCategory` = 44
+- `InvalidDifficulty` = 45
+- `CorruptPlayerProgress` = 46
+- `HuntNotStarted` = 47
+- `AdminAlreadyProposed` = 48
+- `InvalidPoints` = 49
+- `HuntFull` = 50
+- `LeaderboardVisibilityUnauthorized` = 51
+
+---
+
+#### `set_creator_hunt_limit`
+
+Admin-only: override the daily hunt-creation limit for a specific creator.
+
+Pass `limit = 0` to remove an existing override, falling back to the
+contract-wide default.
+
+**Signature:**
+
+```rust
+pub fn set_creator_hunt_limit(env: Env, caller: Address, creator: Address, limit: u32) -> Result<(), HuntErrorCode>
+```
+
+**Parameters:**
+
+- `env: Env`
+- `caller: Address`
+- `creator: Address`
+- `limit: u32`
+
+**Returns:** `Result<(), HuntErrorCode>`
+
+**Error type:** `HuntErrorCode`
+
+**Error codes:**
+
+- `HuntNotFound` = 1
+- `ClueNotFound` = 2
+- `InvalidHuntStatus` = 3
+- `PlayerNotRegistered` = 4
+- `ClueAlreadyCompleted` = 5
+- `InvalidAnswer` = 6
+- `HuntNotActive` = 7
+- `Unauthorized` = 8
+- `InsufficientRewardPool` = 9
+- `DuplicateRegistration` = 10
+- `InvalidTitle` = 11
+- `InvalidDescription` = 12
+- `InvalidAddress` = 13
+- `TooManyClues` = 14
+- `InvalidQuestion` = 15
+- `RefundFailed` = 16
+- `NoCluesAdded` = 17
+- `HuntNotCompleted` = 18
+- `RewardAlreadyClaimed` = 19
+- `RewardDistributionFailed` = 20
+- `NoRewardsConfigured` = 21
+- `DuplicateSubmission` = 22
+- `SubmissionExpired` = 23
+- `BannedPlayer` = 24
+- `NoRequiredClues` = 25
+- `RateLimitExceeded` = 26
+- `ScoreOverflow` = 27
+- `RegistrationsPaused` = 28
+- `AnswersPaused` = 29
+- `RewardsPaused` = 30
+- `HuntEndTimeInPast` = 31
+- `NoPendingAdmin` = 32
+- `PendingAdminMismatch` = 33
+- `InvalidRarity` = 34
+- `InvalidTimeBonusConfig` = 35
+- `AddressBlacklisted` = 36
+- `ContractPaused` = 37
+- `InvalidMaxAttempts` = 38
+- `InvalidWeight` = 39
+- `HintNotAvailable` = 40
+- `HintAlreadyUnlocked` = 41
+- `InsufficientScore` = 42
+- `TooManyCategories` = 43
+- `InvalidCategory` = 44
+- `InvalidDifficulty` = 45
+- `CorruptPlayerProgress` = 46
+- `HuntNotStarted` = 47
+- `AdminAlreadyProposed` = 48
+- `InvalidPoints` = 49
+- `HuntFull` = 50
+- `LeaderboardVisibilityUnauthorized` = 51
+
+---
+
+#### `set_default_hunt_creation_limit`
+
+Admin-only: update the contract-wide default daily hunt-creation limit.
+
+This is the fallback used for any creator that has no per-creator
+override. The initial value is [`rate_limit::DEFAULT_HUNT_CREATION_LIMIT`].
+
+**Signature:**
+
+```rust
+pub fn set_default_hunt_creation_limit(env: Env, caller: Address, limit: u32) -> Result<(), HuntErrorCode>
+```
+
+**Parameters:**
+
+- `env: Env`
+- `caller: Address`
+- `limit: u32`
+
+**Returns:** `Result<(), HuntErrorCode>`
+
+**Error type:** `HuntErrorCode`
+
+**Error codes:**
+
+- `HuntNotFound` = 1
+- `ClueNotFound` = 2
+- `InvalidHuntStatus` = 3
+- `PlayerNotRegistered` = 4
+- `ClueAlreadyCompleted` = 5
+- `InvalidAnswer` = 6
+- `HuntNotActive` = 7
+- `Unauthorized` = 8
+- `InsufficientRewardPool` = 9
+- `DuplicateRegistration` = 10
+- `InvalidTitle` = 11
+- `InvalidDescription` = 12
+- `InvalidAddress` = 13
+- `TooManyClues` = 14
+- `InvalidQuestion` = 15
+- `RefundFailed` = 16
+- `NoCluesAdded` = 17
+- `HuntNotCompleted` = 18
+- `RewardAlreadyClaimed` = 19
+- `RewardDistributionFailed` = 20
+- `NoRewardsConfigured` = 21
+- `DuplicateSubmission` = 22
+- `SubmissionExpired` = 23
+- `BannedPlayer` = 24
+- `NoRequiredClues` = 25
+- `RateLimitExceeded` = 26
+- `ScoreOverflow` = 27
+- `RegistrationsPaused` = 28
+- `AnswersPaused` = 29
+- `RewardsPaused` = 30
+- `HuntEndTimeInPast` = 31
+- `NoPendingAdmin` = 32
+- `PendingAdminMismatch` = 33
+- `InvalidRarity` = 34
+- `InvalidTimeBonusConfig` = 35
+- `AddressBlacklisted` = 36
+- `ContractPaused` = 37
+- `InvalidMaxAttempts` = 38
+- `InvalidWeight` = 39
+- `HintNotAvailable` = 40
+- `HintAlreadyUnlocked` = 41
+- `InsufficientScore` = 42
+- `TooManyCategories` = 43
+- `InvalidCategory` = 44
+- `InvalidDifficulty` = 45
+- `CorruptPlayerProgress` = 46
+- `HuntNotStarted` = 47
+- `AdminAlreadyProposed` = 48
+- `InvalidPoints` = 49
+- `HuntFull` = 50
+- `LeaderboardVisibilityUnauthorized` = 51
+
+---
+
+#### `get_creator_rate_limit_status`
+
+Query the current quota status for a creator.
+
+Returns how many hunts the creator has created today, their effective
+daily limit, and the cooldown seconds until the next day begins (0 when
+the limit has not been reached).
+
+**Signature:**
+
+```rust
+pub fn get_creator_rate_limit_status(env: Env, creator: Address) -> crate::types::RateLimitStatus
+```
+
+**Parameters:**
+
+- `env: Env`
+- `creator: Address`
+
+**Returns:** `crate::types::RateLimitStatus`
 
 ---
 
