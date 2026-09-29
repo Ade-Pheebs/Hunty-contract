@@ -311,6 +311,24 @@ pub struct VestedClaimedEvent {
 
 #[contractimpl]
 impl RewardManager {
+    /// Returns true when HuntyCore reports the hunt as terminal (cancelled or completed).
+    fn is_hunt_terminal(env: &Env, hunt_id: u64) -> bool {
+        let core = match Storage::get_hunty_core(env) {
+            Some(c) => c,
+            None => return false,
+        };
+        let mut args: Vec<Val> = Vec::new(env);
+        args.push_back(hunt_id.into_val(env));
+        let result: Val = env.invoke_contract(
+            &core,
+            &Symbol::new(env, "get_hunt_status"),
+            args,
+        );
+        let status: u32 = result.into_val(env);
+        // HuntyCore terminal statuses: Cancelled = 3, Completed = 4.
+        status == 3 || status == 4
+    }
+
     fn is_delegate(config: &RewardPoolConfig, candidate: &Address) -> bool {
         for i in 0..config.delegates.len() {
             if config.delegates.get(i).unwrap() == *candidate {

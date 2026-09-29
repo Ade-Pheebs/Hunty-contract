@@ -1,8 +1,8 @@
 use soroban_sdk::contracterror;
 
-// NAMESPACE: reward-manager error codes occupy the range 2001–2999.
-//   hunty-core  uses 1001–1999 (see contracts/hunty-core/src/errors.rs).
-//   nft-reward  uses 3001–3999 (see contracts/nft-reward/src/errors.rs).
+// NAMESPACE: reward-manager error codes occupy the range 2001-2999.
+//   hunty-core  uses 1001-1999 (see contracts/hunty-core/src/errors.rs).
+//   nft-reward  uses 3001-3999 (see contracts/nft-reward/src/errors.rs).
 // Keeping ranges disjoint means a numeric code in a transaction envelope is
 // unambiguous regardless of which contract frame produced it.
 #[contracterror]
@@ -70,14 +70,14 @@ pub enum RewardErrorCode {
     DistributionNotFound = 2024,
 
     /// The source pool is not eligible for migration: its hunt is neither
-    /// expired nor cancelled.
+    // expired nor cancelled.
     SourcePoolNotEligible = 2025,
 
     /// The destination pool does not exist (must be created first).
     DestinationPoolNotFound = 2026,
 
     /// Source and destination refer to the same hunt, or there is no balance
-    /// to migrate.
+    // to migrate.
     InvalidMigration = 2027,
 
     /// Pool is frozen and distributions have been temporarily disabled.
@@ -114,10 +114,14 @@ pub enum RewardErrorCode {
     DistributionPaused = 2038,
 
     /// The pool already has the maximum number of distinct tracked funders;
-    /// a new sponsor cannot be added until the pool is refunded.
+    // a new sponsor cannot be added until the pool is refunded.
     TooManyFunders = 2039,
 
     /// The hunt is not in a terminal state (cancelled or ended), so its pool
-    /// cannot be refunded yet.
+    // cannot be refunded yet.
     InvalidHuntStatus = 2040,
+
+    /// The hunt is in a terminal state (cancelled or ended), so its pool
+    // cannot be funded.
+    HuntTerminal = 2041,
 }
