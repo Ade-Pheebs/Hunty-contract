@@ -259,6 +259,15 @@ pub struct EmergencyWithdrawalEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when the contract is paused.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ContractPausedEvent {
+    pub admin: Address,
+    pub reason: soroban_sdk::String,
+    pub timestamp: u64,
+}
+
 /// Log entry for emergency withdrawal record-keeping.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2803,6 +2812,9 @@ impl RewardManager {
     pub fn claim_vested(env: Env, player: Address, hunt_id: u64) -> Result<i128, RewardErrorCode> {
         player.require_auth();
 
+        // Check distribution pause and frozen pool
+        Self::ensure_distribution_allowed(&env)?;
+
         let mut record = Storage::get_vesting_record(&env, hunt_id, &player)
             .ok_or(RewardErrorCode::VestingNotStarted)?;
 
@@ -2834,6 +2846,12 @@ impl RewardManager {
         // Retrieve token address from pool config for the transfer.
         let pool_config =
             Storage::get_pool_config(&env, hunt_id).ok_or(RewardErrorCode::PoolNotFound)?;
+
+        // Check if pool is frozen
+        if pool_config.frozen {
+            return Err(RewardErrorCode::PoolFrozen);
+        }
+
         let token_address = &pool_config.token_address;
 
         let contract_addr = env.current_contract_address();
@@ -2993,12 +3011,30 @@ impl RewardManager {
         start_time: Option<u64>,
         end_time: Option<u64>,
     ) -> DistributionAnalytics {
-        // Load all distributions for the pool (the storage Vec is naturally ordered
-        // by insertion = chronological order).
-        let all = Storage::get_pool_distributions(&env, hunt_id, 0, u32::MAX);
-        let total = all.len();
+        // Read only the most recent MAX_ANALYTICS_ENTRIES from storage
+        // to avoid loading the entire distribution list.
+        let total = Storage::get_pool_distribution_count(&env, hunt_id) as u32;
 
         if total == 0 {
+            return DistributionAnalytics {
+                count: 0,
+                total: 0,
+                average: 0,
+                median: 0,
+                min: 0,
+                max: 0,
+            };
+        }
+
+        // Calculate offset to read only the most recent entries
+        let cap = MAX_ANALYTICS_ENTRIES;
+        let offset = if total > cap { total - cap } else { 0 };
+        let limit = if total > cap { cap } else { total };
+
+        let recent = Storage::get_pool_distributions(&env, hunt_id, offset, limit);
+        let recent_count = recent.len();
+
+        if recent_count == 0 {
             return DistributionAnalytics {
                 count: 0,
                 total: 0,
@@ -3013,11 +3049,10 @@ impl RewardManager {
         // (most recent first) so that when we cap at MAX_ANALYTICS_ENTRIES we
         // get the most relevant entries.
         let mut amounts: soroban_sdk::Vec<i128> = Vec::new(&env);
-        let mut idx = total as i64 - 1;
-        let cap = MAX_ANALYTICS_ENTRIES;
+        let mut idx = recent_count as i64 - 1;
 
         while idx >= 0 && amounts.len() < cap {
-            if let Some(dist) = all.get(idx as u32) {
+            if let Some(dist) = recent.get(idx as u32) {
                 let ts = dist.timestamp;
                 let in_range = match (start_time, end_time) {
                     (Some(start), Some(end)) => ts >= start && ts < end,
@@ -3315,7 +3350,7 @@ impl RewardManager {
     }
 
     /// Pauses the contract, preventing reward distributions and withdrawals.
-    /// Only the contract admin can call this. Emits an emergency event.
+    /// Only the contract admin can call this. Emits a ContractPausedEvent.
     pub fn pause(
         env: Env,
         admin: Address,
@@ -3329,10 +3364,8 @@ impl RewardManager {
         Storage::set_paused(&env, true);
         env.events().publish(
             (symbol_short!("PAUSED"),),
-            EmergencyWithdrawalEvent {
+            ContractPausedEvent {
                 admin,
-                hunt_id: 0,
-                amount: 0,
                 reason,
                 timestamp: env.ledger().timestamp(),
             },
