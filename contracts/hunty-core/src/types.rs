@@ -105,6 +105,7 @@ pub struct HuntCache {
     pub total_clues: u32,
     pub required_clues: u32,
     pub max_winners: u32,
+    pub activated_at: u64,
 }
 
 impl HuntCache {
@@ -118,6 +119,7 @@ impl HuntCache {
             total_clues: hunt.total_clues,
             required_clues: hunt.required_clues,
             max_winners: hunt.reward_config.max_winners,
+            activated_at: hunt.activated_at,
         }
     }
 }

@@ -93,7 +93,7 @@ impl RateLimiter {
 
         data.count += 1;
         self::write(env, creator, &data);
-        Ok(()
+        Ok(())
     }
 
     #[allow(dead_code)]

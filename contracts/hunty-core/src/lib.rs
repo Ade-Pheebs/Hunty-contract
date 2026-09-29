@@ -1092,7 +1092,7 @@ impl HuntyCore {
         let mut progress = Storage::get_player_progress_or_error(&env, hunt_id, &player)
             .map_err(HuntErrorCode::from)?;
         progress.request_hint(clue_id, clue.hint_penalty_points)?;
-        Storage::save_player_progress(&env, &progress);
+        Storage::save_player_progress(&env, &progress, _cache.activated_at);
         Self::update_leaderboard_index(&env, &progress);
         Ok(hint)
     }
@@ -2200,7 +2200,7 @@ impl HuntyCore {
 
         // Update player progress
         progress.reward_claimed = true;
-        Storage::save_player_progress(env, progress);
+        Storage::save_player_progress(env, progress, hunt.activated_at);
 
         // #832: Use checked_add for claimed_count to guard against overflow
         hunt.reward_config.claimed_count = hunt
@@ -2305,7 +2305,7 @@ impl HuntyCore {
         }
 
         let progress = PlayerProgress::new(&env, player.clone(), hunt_id, current_time);
-        Storage::save_player_progress(&env, &progress);
+        Storage::save_player_progress(&env, &progress, hunt.activated_at);
 
         let event = PlayerRegisteredEvent {
             hunt_id,
@@ -2570,7 +2570,7 @@ impl HuntyCore {
         }
 
         let progress = PlayerProgress::new(&env, player.clone(), hunt_id, current_time);
-        Storage::save_player_progress(&env, &progress);
+        Storage::save_player_progress(&env, &progress, hunt.activated_at);
 
         let event = PlayerRegisteredWithInviteEvent {
             hunt_id,
@@ -2655,7 +2655,7 @@ impl HuntyCore {
             progress.clue_last_attempts.set(clue_id, current_time);
         }
 
-        Storage::save_player_progress(&env, &progress);
+        Storage::save_player_progress(&env, &progress, hunt.activated_at);
 
         let submitted_hash = Self::normalize_and_hash_answer(&env, hunt_id, clue_id, &answer)
             .map_err(HuntErrorCode::from)?;
@@ -2827,7 +2827,7 @@ impl HuntyCore {
             if record_failed_submission && hunt.max_submissions_per_minute > 0 {
                 progress.recent_submissions.push_back(current_time);
             }
-            Storage::save_player_progress(env, progress);
+            Storage::save_player_progress(env, progress, hunt.activated_at);
             let incorrect_event = AnswerIncorrectEvent {
                 hunt_id,
                 player: player.clone(),
@@ -2878,7 +2878,7 @@ impl HuntyCore {
             );
         }
 
-        Storage::save_player_progress(env, progress);
+        Storage::save_player_progress(env, progress, hunt.activated_at);
         Self::update_leaderboard_index(env, progress);
 
         let clue_completed_event = ClueCompletedEvent {
