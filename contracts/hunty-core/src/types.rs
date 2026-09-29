@@ -552,6 +552,14 @@ pub struct HuntStatusChangedEvent {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HuntPrivacyChangedEvent {
+    pub hunt_id: u64,
+    pub is_private: bool,
+    pub changed_at: u64,
+}
+
+#[contracttype]
 #[derive(Clone, Debug)]
 pub struct ClueCompletedEvent {
     pub hunt_id: u64,

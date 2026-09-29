@@ -19,12 +19,13 @@ use crate::types::{
     CreatorRemovedFromBlacklistEvent, GcReport, Hunt, HuntActivatedEvent, HuntArchivedEvent,
     HuntCache, HuntCancelledEvent, HuntClonedEvent, HuntClosedEvent, HuntCompletedEvent,
     HuntCreatedEvent, HuntDeactivatedEvent, HuntDescriptionUpdatedEvent,
-    HuntDifficultyOverrideSetEvent, HuntGarbageCollectedEvent, HuntReactivatedEvent,
-    HuntStatistics, HuntStatus, HuntStatusChangedEvent, InviteCodeGeneratedEvent,
-    InviteCodeRevokedEvent, LeaderboardEntry, LeaderboardIndexEntry, LeaderboardResult,
-    LeaderboardVisibility, PlayerBannedEvent, PlayerProgress, PlayerRegisteredEvent,
-    PlayerRegisteredWithInviteEvent, PlayerUnbannedEvent, RegistrationDeadlineSetEvent,
-    RewardClaimedEvent, RewardConfig, RewardManagerSetEvent, TimeBonusConfig,
+    HuntDifficultyOverrideSetEvent, HuntGarbageCollectedEvent, HuntPrivacyChangedEvent,
+    HuntReactivatedEvent, HuntStatistics, HuntStatus, HuntStatusChangedEvent,
+    InviteCodeGeneratedEvent, InviteCodeRevokedEvent, LeaderboardEntry, LeaderboardIndexEntry,
+    LeaderboardResult, LeaderboardVisibility, PlayerBannedEvent, PlayerProgress,
+    PlayerRegisteredEvent, PlayerRegisteredWithInviteEvent, PlayerUnbannedEvent,
+    RegistrationDeadlineSetEvent, RewardClaimedEvent, RewardConfig, RewardManagerSetEvent,
+    TimeBonusConfig,
 };
 use reward_interface::RewardErrorCode;
 use soroban_sdk::{
@@ -2499,17 +2500,14 @@ impl HuntyCore {
         hunt.is_private = is_private;
         Storage::save_hunt(&env, &hunt);
 
-        // Emit a status-changed event so off-chain indexers can track privacy toggles
-        // Privacy toggling does not change the hunt's status: it stays in Draft.
         let current_time = env.ledger().timestamp();
-        let old_status = HuntStatus::Draft;
-        Self::emit_hunt_status_changed(
-            &env,
+        let event = HuntPrivacyChangedEvent {
             hunt_id,
-            old_status,
-            hunt.status.clone(),
-            current_time,
-        );
+            is_private,
+            changed_at: current_time,
+        };
+        env.events()
+            .publish((Symbol::new(&env, "HuntPrivacyChanged"), hunt_id), event);
 
         Ok(())
     }
