@@ -1137,11 +1137,18 @@ impl HuntyCore {
     ) -> Result<String, HuntErrorCode> {
         player.require_auth();
         let _cache = Self::validate_hunt_active_cached(&env, hunt_id)?;
+        let hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
         let clue =
             Storage::get_clue_or_error(&env, hunt_id, clue_id).map_err(HuntErrorCode::from)?;
         let hint = clue.hint.clone().ok_or(HuntErrorCode::HintNotAvailable)?;
         let mut progress = Storage::get_player_progress_or_error(&env, hunt_id, &player)
             .map_err(HuntErrorCode::from)?;
+        if progress.has_completed_clue(clue_id) {
+            return Err(HuntErrorCode::ClueAlreadyCompleted);
+        }
+        if Self::team_has_completed_clue(&env, &hunt, &player, clue_id) {
+            return Err(HuntErrorCode::ClueAlreadyCompleted);
+        }
         progress.request_hint(clue_id, clue.hint_penalty_points)?;
         Storage::save_player_progress(&env, &progress, _cache.activated_at);
         Self::update_leaderboard_index(&env, &progress);

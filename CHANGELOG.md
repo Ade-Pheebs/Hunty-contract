@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `hunty-core`: `request_hint` now rejects hint requests for clues the player has already completed, returning `ClueAlreadyCompleted` instead of silently deducting the hint penalty and shifting the player's frozen leaderboard rank (#1028).
 - `hunty-core`: `get_hunt_leaderboard_window` reads only the requested slice of the player registration index instead of loading every player and each one's progress record, and `get_hunt_leaderboard` reports `total_players` from the registration counter. Paging a large hunt is now `O(window_size)` and stays inside the per-transaction footprint budget (#1041).
 - `reward-manager`: `freeze_pool` now records who froze a pool (`RewardPoolConfig::frozen_by`, also exposed on `get_reward_pool`), and `unfreeze_pool` only lets the admin lift an admin-issued freeze. A creator can no longer undo an incident freeze, and a creator freeze call cannot downgrade an existing admin freeze (#1077).
 - `hunty-core`: `list_hunts` uses saturating scan bounds and keeps pagination arithmetic in `u64`, avoiding overflow at large offsets and truncation of the hunt counter (#1053).
