@@ -1483,7 +1483,7 @@ impl HuntyCore {
                         balance_args,
                     ) {
                     Ok(Ok(amount)) => amount,
-                    _ => 0,
+                    _ => return Err(HuntErrorCode::InsufficientRewardPool),
                 };
 
                 // Validate pool balance >= min_distribution_amount * max_winners
