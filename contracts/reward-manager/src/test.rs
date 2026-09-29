@@ -4884,12 +4884,10 @@ mod test {
             .unwrap();
             RewardManager::set_pool_nft_contract(env.clone(), creator.clone(), 1, Some(nft))
                 .unwrap();
-            RewardManager::add_delegate(env.clone(), creator.clone(), 1, delegate.clone())
-                .unwrap();
+            RewardManager::add_delegate(env.clone(), creator.clone(), 1, delegate.clone()).unwrap();
             RewardManager::remove_delegate(env.clone(), creator.clone(), 1, delegate.clone())
                 .unwrap();
-            RewardManager::set_vesting_period_secs(env.clone(), creator.clone(), 1, 3_600)
-                .unwrap();
+            RewardManager::set_vesting_period_secs(env.clone(), creator.clone(), 1, 3_600).unwrap();
 
             let expected = [
                 (Op::UpdateMinAmount, Some(100)),
@@ -4901,7 +4899,10 @@ mod test {
                 (Op::RemoveDelegate, None),
                 (Op::SetVestingPeriod, None),
             ];
-            assert_eq!(Storage::get_pool_audit_count(&env, 1), 1 + expected.len() as u64);
+            assert_eq!(
+                Storage::get_pool_audit_count(&env, 1),
+                1 + expected.len() as u64
+            );
             for (i, (op, amount)) in expected.iter().enumerate() {
                 let entry = Storage::get_pool_audit_entry(&env, 1, 1 + i as u64).unwrap();
                 assert_eq!(&entry.operation, op);
@@ -4924,11 +4925,9 @@ mod test {
             // Removing someone who is not a delegate changes nothing.
             RewardManager::remove_delegate(env.clone(), creator.clone(), 1, delegate.clone())
                 .unwrap();
-            RewardManager::add_delegate(env.clone(), creator.clone(), 1, delegate.clone())
-                .unwrap();
+            RewardManager::add_delegate(env.clone(), creator.clone(), 1, delegate.clone()).unwrap();
             // Re-adding an existing delegate changes nothing.
-            RewardManager::add_delegate(env.clone(), creator.clone(), 1, delegate.clone())
-                .unwrap();
+            RewardManager::add_delegate(env.clone(), creator.clone(), 1, delegate.clone()).unwrap();
             // Create + a single AddDelegate.
             assert_eq!(Storage::get_pool_audit_count(&env, 1), 2);
         });
@@ -4974,20 +4973,16 @@ mod test {
             .unwrap();
             RewardManager::set_pool_nft_contract(env.clone(), creator.clone(), 1, Some(nft))
                 .unwrap();
-            RewardManager::add_delegate(env.clone(), creator.clone(), 1, delegate.clone())
-                .unwrap();
+            RewardManager::add_delegate(env.clone(), creator.clone(), 1, delegate.clone()).unwrap();
             RewardManager::remove_delegate(env.clone(), creator.clone(), 1, delegate).unwrap();
-            RewardManager::set_vesting_period_secs(env.clone(), creator.clone(), 1, 3_600)
-                .unwrap();
+            RewardManager::set_vesting_period_secs(env.clone(), creator.clone(), 1, 3_600).unwrap();
 
             let events = all_events_legacy(&env);
             let count_topic = |topic: Symbol| {
                 let expected: Val = topic.into_val(&env);
                 events
                     .iter()
-                    .filter(|e| {
-                        e.1.get(0).map(|t| t.get_payload()) == Some(expected.get_payload())
-                    })
+                    .filter(|e| e.1.get(0).map(|t| t.get_payload()) == Some(expected.get_payload()))
                     .count()
             };
 
@@ -5001,7 +4996,11 @@ mod test {
                 symbol_short!("DLG_REM"),
                 symbol_short!("PL_VEST"),
             ] {
-                assert_eq!(count_topic(topic.clone()), 1, "expected one {topic:?} event");
+                assert_eq!(
+                    count_topic(topic.clone()),
+                    1,
+                    "expected one {topic:?} event"
+                );
             }
         });
     }
