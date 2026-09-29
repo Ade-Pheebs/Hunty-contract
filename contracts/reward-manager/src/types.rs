@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, Address, BytesN, Vec};
 
-pub use reward_interface:{
+pub use reward_interface::{
     rank_tiers_are_strictly_ascending, resolve_rank_tier_amount, resolve_tier_amount,
     tiers_are_strictly_ascending, RankBasedRewardTier, RankRewardTier, RewardConfig, TierError,
     TimeBasedRewardTier,
@@ -18,7 +18,7 @@ pub use reward_interface:{
 pub const MAX_DELEGATES: u32 = 32;
 
 /// How XLM rewards are calculated from the pool at distribution time.
-#[contracttpe]
+#[contracttype]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum DistributionMode {
@@ -194,7 +194,7 @@ pub struct PendingNftMint {
     pub player: Address,
     pub nft_contract: Address,
     pub nft_title: soroban_sdk::String,
-    pub nft_description: soroban_sdk:String,
+    pub nft_description: soroban_sdk::String,
     pub nft_image_uri: soroban_sdk::String,
     pub nft_hunt_title: soroban_sdk::String,
     pub nft_rarity: u32,
@@ -329,4 +329,43 @@ pub struct VestingRecord {
     pub start_timestamp: u64,
     /// Vesting duration in seconds.
     pub period_secs: u64,
+}
+
+/// Returned by `get_vesting_status`.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VestingStatus {
+    /// Ledger timestamp when vesting began.
+    pub start_time: u64,
+    /// Full vesting duration in seconds.
+    pub vesting_period_secs: u64,
+    /// Total XLM locked under this schedule.
+    pub total_amount: i128,
+    /// Cumulative XLM already claimed.
+    pub claimed_amount: i128,
+    /// XLM that has vested so far: `total_amount * min(elapsed / vesting_period_secs, 1)`.
+    pub vested_amount: i128,
+    /// XLM available to claim right now: `vested_amount - claimed_amount`.
+    pub claimable_amount: i128,
+    /// True once `claimed_amount >= total_amount`.
+    pub fully_vested: bool,
+}
+
+/// Statistical summary of distributions across a reward pool,
+/// returned by get_distribution_analytics().
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DistributionAnalytics {
+    /// Number of distributions included in the analytics window.
+    pub count: u64,
+    /// Total XLM distributed in the analytics window (stroops).
+    pub total: i128,
+    /// Average (mean) XLM amount per distribution (stroops). 0 if count is 0.
+    pub average: i128,
+    /// Median XLM amount across distributions (stroops). 0 if count is 0.
+    pub median: i128,
+    /// Minimum XLM amount in a single distribution (stroops). 0 if count is 0.
+    pub min: i128,
+    /// Maximum XLM amount in a single distribution (stroops). 0 if count is 0.
+    pub max: i128,
 }
