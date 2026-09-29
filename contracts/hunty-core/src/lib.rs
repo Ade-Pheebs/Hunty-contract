@@ -662,6 +662,7 @@ impl HuntyCore {
         if is_required {
             updated.required_clues += 1;
         }
+        Self::recalculate_hunt_difficulty(&env, hunt_id, &mut updated);
         Storage::save_hunt(&env, &updated);
 
         Ok(clue_id)
@@ -712,6 +713,7 @@ impl HuntyCore {
         let mut updated = hunt;
         updated.total_clues += clues.len();
         updated.required_clues += batch_required;
+        Self::recalculate_hunt_difficulty(&env, hunt_id, &mut updated);
         Storage::save_hunt(&env, &updated);
 
         Ok(clue_ids)
@@ -779,13 +781,6 @@ impl HuntyCore {
 
         Storage::save_clue(env, hunt_id, &clue);
 
-        let mut updated = Storage::get_hunt_or_error(env, hunt_id).map_err(HuntErrorCode::from)?;
-        updated.total_clues += 1;
-        if is_required {
-            updated.required_clues += 1;
-        }
-        Self::recalculate_hunt_difficulty(env, hunt_id, &mut updated);
-        Storage::save_hunt(env, &updated);
         let event = ClueAddedEvent {
             hunt_id,
             clue_id,
