@@ -841,6 +841,7 @@ impl HuntyCore {
         limit: u32,
         scan_limit: u32,
     ) -> Vec<Hunt> {
+        let limit = if limit == 0 { DEFAULT_PAGE_SIZE } else { limit };
         let counter = Storage::get_hunt_counter(&env);
         let mut hunts = Vec::new(&env);
         let mut current = offset;
@@ -891,6 +892,7 @@ impl HuntyCore {
         limit: u32,
         scan_limit: u32,
     ) -> Vec<Hunt> {
+        let limit = if limit == 0 { DEFAULT_PAGE_SIZE } else { limit };
         let Ok(category) = crate::sanitization::StringSanitizer::sanitize(
             &env,
             &category,
