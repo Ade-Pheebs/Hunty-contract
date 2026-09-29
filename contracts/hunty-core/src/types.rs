@@ -80,8 +80,6 @@ pub struct Hunt {
     pub allow_partial_scoring: bool,
     /// When true, players may form teams and share clue progress.
     pub team_mode: bool,
-    /// Default point value applied to clues with 0 points. Clue-level points override this.
-    pub default_points: u32,
     /// Minimum seconds a player must wait between attempts on the same clue.
     pub attempt_cooldown_secs: u32,
     /// Maximum number of players allowed to register. 0 = unlimited.
@@ -451,9 +449,6 @@ impl PlayerProgress {
     ) -> Result<(), crate::errors::HuntErrorCode> {
         if self.has_requested_hint(clue_id) {
             return Err(crate::errors::HuntErrorCode::HintAlreadyUnlocked);
-        }
-        if self.total_score < penalty {
-            return Err(crate::errors::HuntErrorCode::InsufficientScore);
         }
         self.total_score = self.total_score.saturating_sub(penalty);
         self.hinted_clues.push_back(clue_id);
