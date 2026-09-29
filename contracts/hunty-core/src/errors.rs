@@ -121,6 +121,7 @@ pub enum HuntError {
     HuntNotStarted,
     AttemptCooldownNotExpired,
     HuntFull,
+    PrivateHuntRequiresInvite,
 }
 
 impl From<HuntError> for HuntErrorCode {
@@ -177,6 +178,7 @@ impl From<HuntError> for HuntErrorCode {
             HuntError::HuntNotStarted => HuntErrorCode::HuntNotStarted,
             HuntError::AttemptCooldownNotExpired => HuntErrorCode::RateLimitExceeded,
             HuntError::HuntFull => HuntErrorCode::HuntFull,
+            HuntError::PrivateHuntRequiresInvite => HuntErrorCode::Unauthorized,
         }
     }
 }
