@@ -3460,6 +3460,66 @@ mod test {
         });
     }
 
+    #[test]
+    fn test_migrate_pool_rejects_different_tokens() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let (contract_id, source_token, source_token_admin) = setup(&env);
+        let destination_token_admin = Address::generate(&env);
+        let destination_token = env
+            .register_stellar_asset_contract_v2(destination_token_admin)
+            .address();
+        let admin = Address::generate(&env);
+        let creator = Address::generate(&env);
+
+        mint_tokens(
+            &env,
+            &source_token,
+            &source_token_admin,
+            &creator,
+            100_000_000,
+        );
+        let hunty_core_id = setup_hunty_core(&env, 1, true);
+
+        env.as_contract(&contract_id, || {
+            RewardManager::initialize(
+                env.clone(),
+                admin.clone(),
+                source_token.clone(),
+                hunty_core_id.clone(),
+            )
+            .unwrap();
+            RewardManager::create_reward_pool_with_nft(
+                env.clone(),
+                creator.clone(),
+                1,
+                source_token.clone(),
+                0,
+                Some(nft_contract_placeholder(&env)),
+                0,
+                true,
+            )
+            .unwrap();
+            RewardManager::create_reward_pool_with_nft(
+                env.clone(),
+                creator.clone(),
+                2,
+                destination_token.clone(),
+                0,
+                Some(nft_contract_placeholder(&env)),
+                0,
+                true,
+            )
+            .unwrap();
+            RewardManager::fund_reward_pool(env.clone(), creator.clone(), 1, 60_000_000).unwrap();
+
+            let result = RewardManager::migrate_pool(env.clone(), creator.clone(), 1, 2);
+            assert_eq!(result, Err(RewardErrorCode::InvalidMigration));
+            assert_eq!(RewardManager::get_pool_balance(env.clone(), 1), 60_000_000);
+            assert_eq!(RewardManager::get_pool_balance(env.clone(), 2), 0);
+        });
+    }
+
     /// Verifies that migrating a source pool's balance into a destination
     /// pool that already has its own sponsor doesn't dilute or misattribute
     /// either party's share: the migrated lump sum is credited to the shared
