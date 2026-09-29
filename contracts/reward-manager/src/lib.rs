@@ -49,6 +49,16 @@ const MAX_BATCH_SIZE: u32 = 10;
 /// an arbitrarily large number of distributions.
 const MAX_ANALYTICS_ENTRIES: u32 = 500;
 
+/// Maximum number of entries allowed in a pool's time-based or rank-based tier
+/// list (issue #1081).
+///
+/// The whole `RewardPoolConfig` — tiers included — is read on every
+/// distribution and by HuntyCore at completion, so a pathologically long tier
+/// list would make every payout for that hunt expensive or impossible. Both
+/// `set_pool_tiers` and `set_pool_rank_tiers` reject lists longer than this cap
+/// with `InvalidConfig`, leaving any previously stored config untouched.
+pub const MAX_TIER_ENTRIES: u32 = 20;
+
 #[contract]
 pub struct RewardManager;
 
@@ -319,11 +329,7 @@ impl RewardManager {
         };
         let mut args: Vec<Val> = Vec::new(env);
         args.push_back(hunt_id.into_val(env));
-        let result: Val = env.invoke_contract(
-            &core,
-            &Symbol::new(env, "get_hunt_status"),
-            args,
-        );
+        let result: Val = env.invoke_contract(&core, &Symbol::new(env, "get_hunt_status"), args);
         let status: u32 = result.into_val(env);
         // HuntyCore terminal statuses: Cancelled = 3, Completed = 4.
         status == 3 || status == 4
@@ -595,6 +601,7 @@ impl RewardManager {
             nft_royalty_bps,
             nft_transferable,
             rank_based_tiers: Vec::new(&env),
+            frozen_by: None,
         };
         Storage::set_pool_config(&env, hunt_id, &config);
 
@@ -840,8 +847,9 @@ impl RewardManager {
     /// # Errors
     /// * `PoolNotFound` - No pool exists for this hunt_id
     /// * `Unauthorized` - Caller is not the pool creator
-    /// * `InvalidConfig` - Tier list (when non-empty) contains a zero/negative
-    ///   amount or is not strictly ascending
+    /// * `InvalidConfig` - Tier list is longer than [`MAX_TIER_ENTRIES`], or
+    ///   (when non-empty) contains a zero/negative amount or is not strictly
+    ///   ascending
     pub fn set_pool_tiers(
         env: Env,
         creator: Address,
@@ -857,9 +865,16 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
+        // Bound the tier list so the per-distribution config read stays cheap
+        // and deterministic (issue #1081). Reject before any mutation so a
+        // rejected oversized list never overwrites the stored config.
+        let tiers_len = time_based_tiers.len();
+        if tiers_len > MAX_TIER_ENTRIES {
+            return Err(RewardErrorCode::InvalidConfig);
+        }
+
         // Empty tier list is a valid opt-out from tier-based rewards — it
         // disables the feature for this pool. Non-empty lists must validate.
-        let tiers_len = time_based_tiers.len();
         if tiers_len > 0 {
             if let Err(_err) = tiers_are_strictly_ascending(&time_based_tiers) {
                 return Err(RewardErrorCode::InvalidConfig);
@@ -888,6 +903,12 @@ impl RewardManager {
     ///
     /// Only the pool creator may change this configuration. Changes affect
     /// subsequent distributions and never rewrite an already-recorded payout.
+    ///
+    /// # Errors
+    /// * `PoolNotFound` - No pool exists for this hunt_id
+    /// * `Unauthorized` - Caller is not the pool creator
+    /// * `InvalidConfig` - Tier list is longer than [`MAX_TIER_ENTRIES`], or
+    ///   (when non-empty) is not strictly ascending with positive amounts
     pub fn set_pool_rank_tiers(
         env: Env,
         creator: Address,
@@ -903,13 +924,19 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
+        // Bound the tier list before any mutation (issue #1081): a rejected
+        // oversized list must not overwrite the stored config.
+        let tier_count = rank_based_tiers.len();
+        if tier_count > MAX_TIER_ENTRIES {
+            return Err(RewardErrorCode::InvalidConfig);
+        }
+
         if !rank_based_tiers.is_empty()
             && rank_tiers_are_strictly_ascending(&rank_based_tiers).is_err()
         {
             return Err(RewardErrorCode::InvalidConfig);
         }
 
-        let tier_count = rank_based_tiers.len();
         config.rank_based_tiers = rank_based_tiers;
         Storage::set_pool_config(&env, hunt_id, &config);
 
@@ -1574,6 +1601,7 @@ impl RewardManager {
             creator: config.creator,
             min_distribution_amount: config.min_distribution_amount,
             frozen: config.frozen,
+            frozen_by: config.frozen_by,
         })
     }
 
@@ -1643,8 +1671,7 @@ impl RewardManager {
                 // are never valid.
                 let is_nft_only =
                     config.min_distribution_amount == 0 && config.nft_contract.is_some();
-                let valid_amount =
-                    required_amount > 0 || (required_amount == 0 && is_nft_only);
+                let valid_amount = required_amount > 0 || (required_amount == 0 && is_nft_only);
                 let meets_balance = balance >= required_amount;
                 let meets_minimum = config.min_distribution_amount == 0
                     || required_amount >= config.min_distribution_amount;
@@ -1664,6 +1691,9 @@ impl RewardManager {
     /// Freezes a reward pool, preventing any further distributions.
     ///
     /// Can be called by either the pool creator or the contract admin.
+    /// Records who issued the freeze in `RewardPoolConfig::frozen_by`; an
+    /// admin-issued freeze can only be lifted by the admin (see
+    /// `unfreeze_pool`, #1077).
     /// Emits a `PoolFrozenEvent`.
     ///
     /// # Arguments
@@ -1687,6 +1717,13 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
+        // Record who issued the freeze. An admin freeze is never downgraded by
+        // a later creator call (which would let the creator lift it again),
+        // while an admin call always (re)asserts an admin freeze over an
+        // existing creator freeze.
+        if is_admin || !config.frozen {
+            config.frozen_by = Some(caller.clone());
+        }
         config.frozen = true;
         Storage::set_pool_config(&env, hunt_id, &config);
 
@@ -1711,7 +1748,11 @@ impl RewardManager {
 
     /// Unfreezes a reward pool, re-enabling distributions.
     ///
-    /// Can be called by either the pool creator or the contract admin.
+    /// Can be called by either the pool creator or the contract admin, except
+    /// that a freeze issued by the admin may only be lifted by the admin
+    /// (#1077). Any freezer other than the pool creator was the admin at the
+    /// time of the freeze, so this restriction also survives an admin rotation.
+    /// Clears `RewardPoolConfig::frozen_by`.
     /// Emits a `PoolUnfrozenEvent`.
     ///
     /// # Arguments
@@ -1720,7 +1761,9 @@ impl RewardManager {
     ///
     /// # Errors
     /// * `PoolNotFound` - No pool exists for this hunt_id
-    /// * `Unauthorized` - Caller is neither the pool creator nor the contract admin
+    /// * `Unauthorized` - Caller is neither the pool creator nor the contract
+    ///   admin, or the current freeze was issued by the admin and the caller is
+    ///   not the admin
     pub fn unfreeze_pool(env: Env, caller: Address, hunt_id: u64) -> Result<(), RewardErrorCode> {
         caller.require_auth();
 
@@ -1735,7 +1778,21 @@ impl RewardManager {
             return Err(RewardErrorCode::Unauthorized);
         }
 
+        // A freeze applied under admin authority may only be lifted by the
+        // admin. The creator cannot record an admin freeze, so "frozen by
+        // anyone other than the creator" means "frozen by the admin" — even if
+        // the admin address has since rotated.
+        let admin_freeze = config
+            .frozen_by
+            .as_ref()
+            .map(|freezer| freezer != &config.creator)
+            .unwrap_or(false);
+        if admin_freeze && !is_admin {
+            return Err(RewardErrorCode::Unauthorized);
+        }
+
         config.frozen = false;
+        config.frozen_by = None;
         Storage::set_pool_config(&env, hunt_id, &config);
 
         env.events().publish(
@@ -3637,13 +3694,20 @@ impl RewardManager {
         }
         let xlm_token = Storage::get_xlm_token(&env).ok_or(RewardErrorCode::NotInitialized)?;
         let contract_addr = env.current_contract_address();
-        let client = soroban_sdk::token::Client::new(&env, &xlm_token);
         let mut total_withdrawn: i128 = 0;
+
+        let get_pool_token = |pid: u64| -> Address {
+            Storage::get_pool_config(&env, pid)
+                .map(|config| config.token_address)
+                .unwrap_or_else(|| xlm_token.clone())
+        };
 
         if hunt_id > 0 {
             // Single pool emergency withdrawal
             let balance = Storage::get_pool_balance(&env, hunt_id);
             if balance > 0 {
+                let token_address = get_pool_token(hunt_id);
+                let client = soroban_sdk::token::Client::new(&env, &token_address);
                 client.transfer(&contract_addr, &recipient, &balance);
                 Storage::set_pool_balance(&env, hunt_id, 0);
                 total_withdrawn = balance;
@@ -3681,6 +3745,8 @@ impl RewardManager {
             for pid in 1..=max_hunt_id {
                 let balance = Storage::get_pool_balance(&env, pid);
                 if balance > 0 {
+                    let token_address = get_pool_token(pid);
+                    let client = soroban_sdk::token::Client::new(&env, &token_address);
                     client.transfer(&contract_addr, &recipient, &balance);
                     Storage::set_pool_balance(&env, pid, 0);
                     total_withdrawn += balance;

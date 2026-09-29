@@ -48,6 +48,29 @@ fn setup_hunt(env: &Env, end_time: Option<u64>) -> (HuntyCoreClient<'_>, Address
     (client, creator, hunt_id)
 }
 
+#[test]
+fn test_invite_codes_over_256_bytes_are_rejected() {
+    let env = Env::default();
+    env.ledger().set_timestamp(START_TS);
+    env.mock_all_auths();
+
+    let (client, creator, hunt_id) = setup_hunt(&env, None);
+    let oversized_code = String::from_str(&env, &"x".repeat(300));
+
+    assert!(client
+        .try_generate_invite_code(&hunt_id, &creator, &oversized_code)
+        .is_err());
+
+    client.generate_invite_code(&hunt_id, &creator, &String::from_str(&env, "valid-code"));
+    client.set_hunt_privacy(&hunt_id, &creator, &true);
+    client.activate_hunt(&hunt_id, &creator);
+
+    let player = Address::generate(&env);
+    assert!(client
+        .try_register_with_invite(&hunt_id, &player, &oversized_code)
+        .is_err());
+}
+
 fn submit(
     client: &HuntyCoreClient,
     env: &Env,
@@ -297,3 +320,36 @@ fn test_team_functions_require_team_mode() {
         .try_create_team(&hunt_id, &player, &String::from_str(&env, "Nope"))
         .is_err());
 }
+
+#[test]
+fn test_first_clue_hint_request_saturates_at_zero() {
+    let env = Env::default();
+    env.ledger().set_timestamp(START_TS);
+    env.mock_all_auths();
+
+    let (client, creator, hunt_id) = setup_hunt(&env, None);
+
+    // Set a hint for clue 1 with a penalty of 5
+    client.set_clue_hint(
+        &hunt_id,
+        &1u32,
+        &creator,
+        &Some(String::from_str(&env, "It's a1")),
+        &5u32,
+    );
+
+    client.activate_hunt(&hunt_id, &creator);
+
+    let player = Address::generate(&env);
+    client.register_player(&hunt_id, &player);
+
+    // Player has 0 score. They can still request the hint.
+    let hint = client.request_hint(&hunt_id, &1u32, &player);
+    assert_eq!(hint, String::from_str(&env, "It's a1"));
+
+    // Player's score should be 0 (saturates instead of going negative)
+    let progress = client.get_player_progress(&hunt_id, &player);
+    assert_eq!(progress.total_score, 0);
+    assert_eq!(progress.hinted_clues.len(), 1);
+}
+

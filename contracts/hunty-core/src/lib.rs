@@ -23,6 +23,8 @@ use crate::types::{
     InviteCodeGeneratedEvent, InviteCodeRevokedEvent, LeaderboardEntry, LeaderboardIndexEntry,
     LeaderboardResult, LeaderboardVisibility, PlayerProgress, PlayerRegisteredEvent,
     PlayerRegisteredWithInviteEvent, RewardClaimedEvent, RewardConfig, RewardManagerSetEvent,
+    LeaderboardResult, PlayerProgress, PlayerRegisteredEvent, PlayerRegisteredWithInviteEvent,
+    RegistrationDeadlineSetEvent, RewardClaimedEvent, RewardConfig, RewardManagerSetEvent,
     TimeBonusConfig,
 };
 use reward_interface::RewardErrorCode;
@@ -51,10 +53,14 @@ mod tests {
 }
 
 #[cfg(test)]
+mod list_hunts_test;
+#[cfg(test)]
 #[path = "paused_status_test.rs"]
 mod paused_status_test;
 const MAX_QUESTION_LENGTH: u32 = 2000;
 const MAX_ANSWER_LENGTH: u32 = 256;
+/// Maximum invite-code length in bytes.
+const MAX_INVITE_CODE_LENGTH: usize = 256;
 const MAX_CATEGORY_BYTES: u32 = 64;
 const MAX_CATEGORIES_PER_HUNT: u32 = 5;
 const MAX_CLUES_PER_HUNT: u32 = 100;
@@ -226,6 +232,11 @@ impl HuntyCore {
             return Err(HuntErrorCode::InvalidTimeBonusConfig);
         }
 
+        let default_points_val = default_points.unwrap_or(100);
+        if !(MIN_CLUE_POINTS..=MAX_CLUE_POINTS).contains(&default_points_val) {
+            return Err(HuntErrorCode::InvalidPoints);
+        }
+
         // Generate unique hunt ID
         let hunt_id = Storage::next_hunt_id(&env);
 
@@ -267,7 +278,7 @@ impl HuntyCore {
             registration_deadline: 0,
             allow_partial_scoring: false,
             team_mode: false,
-            default_points: default_points.unwrap_or(100),
+            default_points: default_points_val,
             attempt_cooldown_secs: 0,
             max_players: 0,
             is_private: false,
@@ -556,6 +567,87 @@ impl HuntyCore {
         Ok(())
     }
 
+    /// Sets the registration cutoff timestamp for a draft hunt. A value of 0 disables the cutoff.
+    /// Only the hunt creator can call this, and only while the hunt is in Draft status.
+    pub fn set_registration_deadline(
+        env: Env,
+        hunt_id: u64,
+        creator: Address,
+        registration_deadline: u64,
+    ) -> Result<(), HuntErrorCode> {
+        creator.require_auth();
+
+        let mut hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
+        if hunt.creator != creator {
+            return Err(HuntErrorCode::Unauthorized);
+        }
+        if hunt.status != HuntStatus::Draft {
+            return Err(HuntErrorCode::InvalidHuntStatus);
+        }
+        if registration_deadline != 0 && registration_deadline < env.ledger().timestamp() {
+            return Err(HuntErrorCode::HuntEndTimeInPast);
+        }
+
+        hunt.registration_deadline = registration_deadline;
+        Storage::save_hunt(&env, &hunt);
+
+        let event = RegistrationDeadlineSetEvent {
+            hunt_id,
+            registration_deadline,
+        };
+        env.events().publish(
+            (Symbol::new(&env, "RegistrationDeadlineSet"), hunt_id),
+            event,
+        );
+        Ok(())
+    }
+
+    /// Enables or disables team features for a draft hunt.
+    /// Only the hunt creator can call this, and only while the hunt is in Draft status.
+    pub fn set_team_mode(
+        env: Env,
+        hunt_id: u64,
+        creator: Address,
+        team_mode: bool,
+    ) -> Result<(), HuntErrorCode> {
+        creator.require_auth();
+
+        let mut hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
+        if hunt.creator != creator {
+            return Err(HuntErrorCode::Unauthorized);
+        }
+        if hunt.status != HuntStatus::Draft {
+            return Err(HuntErrorCode::InvalidHuntStatus);
+        }
+
+        hunt.team_mode = team_mode;
+        Storage::save_hunt(&env, &hunt);
+        Ok(())
+    }
+
+    /// Enables or disables partial-score claims for a draft hunt.
+    /// Only the hunt creator can call this, and only while the hunt is in Draft status.
+    pub fn set_allow_partial_scoring(
+        env: Env,
+        hunt_id: u64,
+        creator: Address,
+        allow_partial_scoring: bool,
+    ) -> Result<(), HuntErrorCode> {
+        creator.require_auth();
+
+        let mut hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
+        if hunt.creator != creator {
+            return Err(HuntErrorCode::Unauthorized);
+        }
+        if hunt.status != HuntStatus::Draft {
+            return Err(HuntErrorCode::InvalidHuntStatus);
+        }
+
+        hunt.allow_partial_scoring = allow_partial_scoring;
+        Storage::save_hunt(&env, &hunt);
+        Ok(())
+    }
+
     /// Exposes the end time of a hunt.
     pub fn get_hunt_end_time(env: Env, hunt_id: u64) -> Result<u64, HuntErrorCode> {
         let hunt = Storage::get_hunt(&env, hunt_id).ok_or(HuntErrorCode::HuntNotFound)?;
@@ -702,13 +794,15 @@ impl HuntyCore {
             return Err(HuntErrorCode::InvalidQuestion);
         }
 
+        let mut final_points = points;
+        if final_points == 0 {
+            let hunt = Storage::get_hunt_or_error(env, hunt_id).map_err(HuntErrorCode::from)?;
+            final_points = hunt.default_points;
+        }
         // Clue points must stay within [MIN_CLUE_POINTS, MAX_CLUE_POINTS].
-        // 0 is treated as unset (invalid), and a value above the cap multiplies
-        // into a score that saturates u32, tying the leaderboard.
-        if !(MIN_CLUE_POINTS..=MAX_CLUE_POINTS).contains(&points) {
+        if !(MIN_CLUE_POINTS..=MAX_CLUE_POINTS).contains(&final_points) {
             return Err(HuntErrorCode::InvalidPoints);
         }
-        let final_points = points;
         let question = crate::sanitization::StringSanitizer::sanitize(
             env,
             &question,
@@ -863,14 +957,18 @@ impl HuntyCore {
     /// A `limit` of `0` defaults to `DEFAULT_PAGE_SIZE`.
     pub fn list_hunts(env: Env, offset: u32, limit: u32) -> Vec<Hunt> {
         let limit = if limit == 0 { DEFAULT_PAGE_SIZE } else { limit };
+        let effective_limit = limit.min(MAX_BATCH_SIZE);
         let counter = Storage::get_hunt_counter(&env);
         let mut hunts = Vec::new(&env);
-        let mut current = offset;
-        let max_to_check = offset + limit.min(MAX_BATCH_SIZE) + 100; // Add buffer for skipped archived
-        let end_check = max_to_check.min(counter as u32);
+        let mut current = u64::from(offset);
+        // Keep the scan in the hunt counter's range, with a bounded buffer for skipped hunts.
+        let max_to_check = current
+            .saturating_add(u64::from(effective_limit))
+            .saturating_add(100);
+        let end_check = max_to_check.min(counter);
 
-        while current < end_check && hunts.len() < limit.min(MAX_BATCH_SIZE) {
-            let hunt_id = (current as u64) + 1;
+        while current < end_check && hunts.len() < effective_limit {
+            let hunt_id = current + 1;
             if let Some(hunt) = Storage::get_hunt(&env, hunt_id) {
                 if hunt.status != HuntStatus::Archived {
                     hunts.push_back(hunt);
@@ -1448,7 +1546,7 @@ impl HuntyCore {
                         balance_args,
                     ) {
                     Ok(Ok(amount)) => amount,
-                    _ => 0,
+                    _ => return Err(HuntErrorCode::InsufficientRewardPool),
                 };
 
                 // Validate pool balance >= min_distribution_amount * max_winners
@@ -2295,6 +2393,7 @@ impl HuntyCore {
     /// * `HuntNotFound` - Hunt does not exist
     /// * `Unauthorized` - Caller is not the hunt creator
     /// * `InvalidHuntStatus` - Hunt is not in Draft status
+    /// * `InvalidAnswer` - Invite code is empty or exceeds 256 bytes
     pub fn generate_invite_code(
         env: Env,
         hunt_id: u64,
@@ -2316,10 +2415,10 @@ impl HuntyCore {
         // Hash the invite code with hunt_id as salt to prevent rainbow-table attacks.
         // Use the same buffer-based approach as normalize_and_hash_answer for consistency.
         let code_len = invite_code.len() as usize;
-        if code_len == 0 {
+        if code_len == 0 || code_len > MAX_INVITE_CODE_LENGTH {
             return Err(HuntErrorCode::InvalidAnswer);
         }
-        let mut buf = [0u8; 264]; // 8 (hunt_id) + 256 (max invite code)
+        let mut buf = [0u8; 8 + MAX_INVITE_CODE_LENGTH];
         buf[..8].copy_from_slice(&hunt_id.to_be_bytes());
         invite_code.copy_into_slice(&mut buf[8..8 + code_len]);
         let salted = Bytes::from_slice(&env, &buf[..8 + code_len]);
@@ -2457,7 +2556,7 @@ impl HuntyCore {
     /// * `HuntNotFound` - Hunt does not exist
     /// * `InvalidHuntStatus` - Hunt is not in Active status, is not private (use
     ///   `register_player` instead), or has no invite code configured
-    /// * `InvalidAnswer` - The provided invite code is empty or does not match
+    /// * `InvalidAnswer` - The invite code is empty, exceeds 256 bytes, or does not match
     /// * `DuplicateRegistration` - Player is already registered for this hunt
     pub fn register_with_invite(
         env: Env,
@@ -2492,10 +2591,10 @@ impl HuntyCore {
         // Hash the provided invite code with the same salt (hunt_id) and compare.
         // Use the same buffer-based approach as generate_invite_code for consistency.
         let code_len = invite_code.len() as usize;
-        if code_len == 0 {
+        if code_len == 0 || code_len > MAX_INVITE_CODE_LENGTH {
             return Err(HuntErrorCode::InvalidAnswer);
         }
-        let mut buf = [0u8; 264]; // 8 (hunt_id) + 256 (max invite code)
+        let mut buf = [0u8; 8 + MAX_INVITE_CODE_LENGTH];
         buf[..8].copy_from_slice(&hunt_id.to_be_bytes());
         invite_code.copy_into_slice(&mut buf[8..8 + code_len]);
         let salted = Bytes::from_slice(&env, &buf[..8 + code_len]);
