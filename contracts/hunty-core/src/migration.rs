@@ -31,11 +31,7 @@ impl HuntyCoreMigration {
         admin: &Address,
         target_version: u32,
     ) -> Result<UpgradeProposal, UpgradeAuthError> {
-        UpgradeAuthorization::require_admin(
-            env,
-            admin,
-            Self::configured_admin(env),
-        )?;
+        UpgradeAuthorization::require_admin(env, admin, Self::configured_admin(env))?;
         let now = env.ledger().timestamp();
         let proposal = UpgradeAuthorization::propose_upgrade(env, admin, target_version, now);
         Ok(proposal)
@@ -46,11 +42,7 @@ impl HuntyCoreMigration {
         admin: &Address,
         delay_seconds: u64,
     ) -> Result<(), UpgradeAuthError> {
-        UpgradeAuthorization::require_admin(
-            env,
-            admin,
-            Self::configured_admin(env),
-        )?;
+        UpgradeAuthorization::require_admin(env, admin, Self::configured_admin(env))?;
         UpgradeAuthorization::set_timelock_seconds(env, delay_seconds);
         Ok(())
     }
@@ -180,11 +172,7 @@ impl HuntyCoreMigration {
         env: &Env,
         admin: &Address,
     ) -> Result<MigrationReport, UpgradeAuthError> {
-        UpgradeAuthorization::require_admin(
-            env,
-            admin,
-            Self::configured_admin(env),
-        )?;
+        UpgradeAuthorization::require_admin(env, admin, Self::configured_admin(env))?;
         let previous =
             MigrationFramework::rollback_version(env).ok_or(UpgradeAuthError::NoProposal)?;
         let current = MigrationFramework::detect_version(env);

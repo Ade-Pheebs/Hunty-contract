@@ -727,12 +727,8 @@ fn test_admin_withdraw_all_uses_pool_token() {
         RewardManager::fund_reward_pool(env.clone(), creator.clone(), 1, 80_000_000).unwrap();
 
         // Admin withdraws all remaining balance
-        let result = RewardManager::admin_withdraw_all(
-            env.clone(),
-            admin.clone(),
-            1,
-            recipient.clone(),
-        );
+        let result =
+            RewardManager::admin_withdraw_all(env.clone(), admin.clone(), 1, recipient.clone());
         assert!(result.is_ok());
 
         let pool_status = RewardManager::get_reward_pool(env.clone(), 1).unwrap();
@@ -795,11 +791,23 @@ fn test_admin_withdraw_multiple_pools_different_tokens() {
         RewardManager::fund_reward_pool(env.clone(), creator.clone(), 2, 60_000_000).unwrap();
 
         // Admin withdraws all from both pools
-        RewardManager::admin_withdraw_all(env.clone(), admin.clone(), 1, recipient.clone()).unwrap();
-        RewardManager::admin_withdraw_all(env.clone(), admin.clone(), 2, recipient.clone()).unwrap();
+        RewardManager::admin_withdraw_all(env.clone(), admin.clone(), 1, recipient.clone())
+            .unwrap();
+        RewardManager::admin_withdraw_all(env.clone(), admin.clone(), 2, recipient.clone())
+            .unwrap();
 
-        assert_eq!(RewardManager::get_reward_pool(env.clone(), 1).unwrap().balance, 0);
-        assert_eq!(RewardManager::get_reward_pool(env.clone(), 2).unwrap().balance, 0);
+        assert_eq!(
+            RewardManager::get_reward_pool(env.clone(), 1)
+                .unwrap()
+                .balance,
+            0
+        );
+        assert_eq!(
+            RewardManager::get_reward_pool(env.clone(), 2)
+                .unwrap()
+                .balance,
+            0
+        );
     });
 
     // Recipient should receive tokens from each pool's respective token

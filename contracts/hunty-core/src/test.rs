@@ -1,3 +1,4 @@
+
 use crate::HuntyCore;
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{Address, Env, String};
@@ -30,8 +31,9 @@ mod test {
     use crate::types::{
         BatchClueInput, ClueAddedEvent, ClueInfo, CreatorBlacklistedEvent,
         CreatorRemovedFromBlacklistEvent, HuntCancelledEvent, HuntClosedEvent, HuntCompletedEvent,
-        HuntCreatedEvent, HuntStatus, HuntStatusChangedEvent, LeaderboardResult, PlayerProgress,
-        PlayerRegisteredEvent, RewardClaimFailedEvent, TimeBonusConfig,
+        HuntCreatedEvent, HuntPrivacyChangedEvent, HuntStatus, HuntStatusChangedEvent,
+        LeaderboardResult, PlayerProgress, PlayerRegisteredEvent, RewardClaimFailedEvent,
+        TimeBonusConfig,
     };
 
     /// Mirrors the private production constant used for submission timestamp validation.
@@ -11856,6 +11858,64 @@ mod test {
     // ========== Issues #831, #832, #833, #834 Maintenance Tests ==========
 
     #[test]
+    fn test_activate_private_hunt_without_invite_code_is_rejected() {
+        let env = Env::default();
+        env.ledger().set_timestamp(1_700_000_000);
+        let creator = Address::generate(&env);
+        let contract_id = env.register(HuntyCore, ());
+
+        env.mock_all_auths();
+        let hunt_id = as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::create_hunt(
+                env.clone(),
+                creator.clone(),
+                String::from_str(env, "Private Hunt"),
+                String::from_str(env, "Private hunt without invite code"),
+                None,
+                None,
+                0,
+                None,
+                None,
+            )
+            .unwrap()
+        });
+
+        env.mock_all_auths();
+        as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::add_clue(
+                env.clone(),
+                hunt_id,
+                String::from_str(env, "Question?"),
+                String::from_str(env, "answer"),
+                10,
+                true,
+                None,
+                None,
+            )
+            .unwrap();
+            HuntyCore::set_hunt_privacy(
+                env.clone(),
+                hunt_id,
+                creator.clone(),
+                true,
+                None,
+            )
+            .unwrap();
+        });
+
+        env.mock_all_auths();
+        let result = as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::activate_hunt(env.clone(), hunt_id, creator.clone())
+        });
+        assert_eq!(result, Err(HuntErrorCode::InvalidHuntStatus));
+
+        let hunt = as_core_contract(&env, &contract_id, |env| {
+            Storage::get_hunt(env, hunt_id).unwrap()
+        });
+        assert_eq!(hunt.status, HuntStatus::Draft);
+    }
+
+    #[test]
     fn test_issue_831_activate_hunt_reward_manager_single_read_and_no_rewards_configured() {
         let env = Env::default();
         env.ledger().set_timestamp(1_700_000_000);
@@ -12162,6 +12222,71 @@ mod test {
             // complete_hunt must succeed without evaluating NFT rarity for non-NFT hunts
             HuntyCore::complete_hunt(env.clone(), hunt_id_non_nft, player.clone()).unwrap();
         });
+    }
+
+    // ─── Issue: add_clue_aliases must cap aliases per clue and dedupe ───
+
+    #[test]
+    fn test_add_clue_aliases_caps_and_dedupes() {
+        let env = Env::default();
+        env.ledger().set_timestamp(1_700_000_000);
+        env.mock_all_auths();
+        let creator = Address::generate(&env);
+        let contract_id = env.register(HuntyCore, ());
+
+        let hunt_id = as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::create_hunt(
+                env.clone(),
+                creator.clone(),
+                String::from_str(env, "Alias Cap Hunt"),
+                String::from_str(env, "Verifies alias cap and dedupe"),
+                None,
+                None,
+                0,
+                None,
+                None,
+            )
+            .unwrap()
+        });
+
+        let clue_id = as_core_contract(&env, &contract_id, |env| {
+            HuntyCore::add_clue(
+                env.clone(),
+                hunt_id,
+                String::from_str(env, "Capital of France?"),
+                String::from_str(env, "Paris"),
+                10,
+                true,
+                None,
+                None,
+            )
+            .unwrap()
+        });
+
+        // Add more aliases than the cap (10). Duplicates must be skipped.
+        as_core_contract(&env, &contract_id, |env| {
+            for i in 0..20u32 {
+                let alias = String::from_str(env, &format!("alias{}", i));
+                HuntyCore::add_clue_aliases(
+                    env.clone(),
+                    hunt_id,
+                    clue_id,
+                    creator.clone(),
+                    Vec::from_array(env, [alias]),
+                )
+                .unwrap();
+            }
+        });
+
+        let clue = as_core_contract(&env, &contract_id, |env| {
+            Storage::get_clue(env, hunt_id, clue_id).unwrap()
+        });
+        // 1 original answer hash + at most 10 aliases.
+        assert!(
+            clue.answer_hashes.len() <= 11,
+            "aliases per clue must be capped, got {}",
+            clue.answer_hashes.len()
+        );
     }
 
     // ─── Issue #808: save_processed_submission must not fire on validation failure ───

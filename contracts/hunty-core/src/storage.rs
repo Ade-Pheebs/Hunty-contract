@@ -197,7 +197,7 @@ impl Storage {
     /// Returns the namespaced persistent storage key for a creator's daily
     /// rate-limit counter. Using a tuple key keeps the counter from colliding
     /// with any other feature that keys persistent data by a bare `Address`.
-    pub fn rate_limit_key(env: &Env, creator: &Address) -> (soroban_sdk::Symbol, Address) {
+    pub fn rate_limit_key(_env: &Env, creator: &Address) -> (soroban_sdk::Symbol, Address) {
         (Self::RATE_LIMIT_KEY, creator.clone())
     }
 
@@ -1974,7 +1974,9 @@ impl Storage {
     pub fn increment_clue_attempt_count(env: &Env, hunt_id: u64, clue_id: u32, player: &Address) {
         let key = Self::clue_attempt_key(hunt_id, clue_id, player);
         let count = env.storage().persistent().get(&key).unwrap_or(0u32);
-        env.storage().persistent().set(&key, &count.saturating_add(1));
+        env.storage()
+            .persistent()
+            .set(&key, &count.saturating_add(1));
         extend_ttl(env, &key, TtlPolicy::Active);
     }
 
@@ -3193,11 +3195,13 @@ mod index_tier_tests {
             )
             .unwrap();
 
-            HuntyCore::activate_hunt(env.clone(), id, creator.clone()).unwrap();
-
-            HuntyCore::register_player(env.clone(), id, player.clone()).unwrap();
-
             id
+        });
+
+        env.as_contract(&contract_id, || {
+            HuntyCore::activate_hunt(env.clone(), hunt_id, creator.clone()).unwrap();
+
+            HuntyCore::register_player(env.clone(), hunt_id, player.clone()).unwrap();
         });
 
         (contract_id, hunt_id, player)
